@@ -228,17 +228,62 @@ Middleware logs every request with UUID `requestId` and sets `X-Request-Id` resp
 
 ## Infrastructure
 
-| Service | Container | Port(s) |
-|---------|-----------|---------|
-| PostgreSQL (users) | smartlend-user-db | 5432 |
-| PostgreSQL (loans) | smartlend-loan-db | 5433 |
-| Redis | smartlend-redis | 6379 |
-| RabbitMQ | smartlend-rabbitmq | 5672 / 15672 (UI) |
-| Prometheus | smartlend-prometheus | 9090 |
+### Cloud (production)
 
-**Dev credentials:** PostgreSQL + RabbitMQ: `smartlend` / `smartlend123`  
+| Service | Provider | Notes |
+|---------|----------|-------|
+| PostgreSQL (userdb) | Neon | pooler endpoint; `sslmode=require` |
+| PostgreSQL (loandb) | Neon | same project, different database |
+| Redis | Upstash | TLS (`rediss://`); `REDIS_SSL=true` |
+| RabbitMQ | CloudAMQP | Little Lemur (free); AMQPS port 5671; `RABBITMQ_SSL=true` |
+
+### Local (docker-compose)
+Local infra containers were removed. `docker compose up -d` now starts only the 4 microservices + ai-scoring + prometheus, all wired to the cloud providers above via `.env`.
+
 **JWT secret:** `smartlend-super-secret-jwt-key-change-in-prod`  
 **Apple Silicon fix:** All Dockerfiles use `--platform=linux/arm64` + `eclipse-temurin:17-jre-jammy`
+
+### Env var names (changed from defaults)
+
+| Variable | Service | Purpose |
+|----------|---------|---------|
+| `USER_DB_URL` / `USER_DB_USERNAME` / `USER_DB_PASSWORD` | user-service | Neon userdb JDBC |
+| `LOAN_DB_URL` / `LOAN_DB_USERNAME` / `LOAN_DB_PASSWORD` | loan-service | Neon loandb JDBC |
+| `RABBITMQ_HOST/PORT/USERNAME/PASSWORD/VHOST/SSL` | loan + notification | CloudAMQP |
+| `REDIS_HOST/PORT/USERNAME/PASSWORD/SSL` | user-service | Upstash Redis |
+
+---
+
+## Production Deployment
+
+### Backend — Railway
+
+| Service | Public URL | Internal URL | Port |
+|---------|-----------|--------------|------|
+| user-service | `user-service-smartlend.up.railway.app` | `user-service-smartlend.railway.internal` | 8081 |
+| loan-service | `loan-service-smartlend.up.railway.app` | `loan-service-smartlend.railway.internal` | 8082 |
+| notification-service | `notification-service-smarlend.up.railway.app` | `notification-service-smartlend.railway.internal` | 8083 |
+| ai-scoring | `ai-scoring-smartlend.up.railway.app` | `ai-scoring-smartlend.railway.internal` | 8000 |
+
+**Inter-service communication uses private Railway hostnames** (free, no egress):
+- `AI_SCORING_URL=http://ai-scoring-smartlend.railway.internal:8000`
+- `USER_SERVICE_URL=http://user-service-smartlend.railway.internal:8081`
+
+**Health checks:**
+```
+https://user-service-smartlend.up.railway.app/actuator/health
+https://loan-service-smartlend.up.railway.app/actuator/health
+https://notification-service-smarlend.up.railway.app/actuator/health
+https://ai-scoring-smartlend.up.railway.app/health
+https://ai-scoring-smartlend.up.railway.app/docs
+```
+
+### Frontend — Vercel
+
+- **URL:** `https://smartlend-ebon.vercel.app`
+- **Repo root:** `frontend/`
+- **Build:** Vercel auto-runs `npm run build`; picks up `frontend/.env.production` automatically
+- **`.npmrc`:** `legacy-peer-deps=true` committed in `frontend/.npmrc` — fixes CRA 5 + TS 5 peer dep conflict for both local installs and Vercel builds
 
 ---
 
@@ -282,6 +327,8 @@ The frontend `EmiPayment` type matches `LoanDto.EmiScheduleItem` exactly:
 
 `AdminDecisionRequest` body field: `decision` (NOT `status`)
 
+`RegisterRequest` field: `fullName` (NOT `name`) — backend `@NotBlank` on `fullName`; sending `name` causes a 422
+
 ### Auth flow
 Login/Register → backend returns `AuthUser` (with `token`, `role`, `monthlyIncome`, `employmentType`) → localStorage → Axios request interceptor injects `Authorization: Bearer <token>` → 401 response clears storage and redirects `/login`
 
@@ -295,7 +342,7 @@ Login/Register → backend returns `AuthUser` (with `token`, `role`, `monthlyInc
 ## Common Dev Commands
 
 ```bash
-# Start everything
+# Start all services (uses cloud infra from .env)
 docker compose up -d
 
 # Rebuild a single service after code change
@@ -303,21 +350,24 @@ docker compose up -d --build user-service
 docker compose up -d --build loan-service
 
 # Frontend dev server
+cd frontend && npm install --legacy-peer-deps
 cd frontend && npm start
 
 # TypeScript type check (zero errors expected)
 cd frontend && npm run type-check
 
-# Promote user to ADMIN
-docker exec -it smartlend-user-db psql -U smartlend -d userdb \
-  -c "UPDATE users SET role='ADMIN' WHERE email='admin@example.com';"
+# Promote user to ADMIN (Neon — run in Neon SQL editor or psql)
+UPDATE users SET role='ADMIN' WHERE email='admin@example.com';
 
 # Tail logs
 docker logs -f smartlend-user-service
 docker logs -f smartlend-loan-service
 
-# RabbitMQ UI
-open http://localhost:15672   # smartlend / smartlend123
+# Railway CLI logs (production)
+railway logs --service user-service-smartlend
+railway logs --service loan-service-smartlend
+railway logs --service notification-service-smarlend
+railway logs --service ai-scoring-smartlend
 ```
 
 ---
@@ -343,9 +393,11 @@ open http://localhost:15672   # smartlend / smartlend123
 
 - **Admin decision HTTP method is PUT:** `PUT /api/loans/admin/{loanId}/decision` — not POST. Body field is `decision`, not `status`.
 
-- **CRA + TypeScript 5:** CRA 5 peer dep declares `typescript@^4` but works with TS5. Always install with `npm install --legacy-peer-deps`.
+- **CRA + TypeScript 5:** CRA 5 peer dep declares `typescript@^4` but works with TS5. Always install with `npm install --legacy-peer-deps`. `frontend/.npmrc` has `legacy-peer-deps=true` so Vercel and CI pick it up automatically.
 
-- **No API gateway:** Frontend calls user-service and loan-service directly. CRA proxy in `package.json` routes `/api` to loan-service `:8082` for dev. User-service calls go direct to `:8081`.
+- **No API gateway:** Frontend calls user-service and loan-service directly. CRA proxy in `package.json` routes `/api` to loan-service `:8082` for dev. User-service calls go direct to `:8081`. In production (Vercel), `frontend/.env.production` sets `REACT_APP_USER_URL` and `REACT_APP_LOAN_URL` to the Railway public URLs — proxy is ignored.
+
+- **`fullName` in RegisterRequest:** Backend `@NotBlank` field is `fullName`. Frontend `api.ts` `RegisterRequest` interface and `Register.tsx` form must use `fullName` — not `name`. Sending `name` causes a silent 422 VALIDATION_ERROR.
 
 ---
 
