@@ -1,0 +1,41 @@
+# Environment
+.env
+*.env.local
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+.mvn/
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.DS_Store
+
+# Node / React
+node_modules/
+build/
+.npm
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Docker
+.docker/
+
+# Logs
+logs/
+*.log

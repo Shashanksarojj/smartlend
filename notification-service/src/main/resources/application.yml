@@ -1,0 +1,48 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: notification-service
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: 5672
+    username: ${SPRING_RABBITMQ_USERNAME:smartlend}
+    password: ${SPRING_RABBITMQ_PASSWORD:smartlend123}
+
+rabbitmq:
+  queue:
+    loan-events: loan.events.queue
+
+# ── Notification channels ──────────────────────────────────────
+notification:
+  channels:
+    email:
+      enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
+    sms:
+      enabled: ${NOTIFICATION_SMS_ENABLED:false}
+    push:
+      enabled: ${NOTIFICATION_PUSH_ENABLED:false}
+
+# ── SendGrid ───────────────────────────────────────────────────
+sendgrid:
+  api-key: ${SENDGRID_API_KEY:}
+  from-email: ${SENDGRID_FROM_EMAIL:noreply@smartlend.com}
+  from-name: ${SENDGRID_FROM_NAME:SmartLend}
+
+# ── Future: Twilio SMS ─────────────────────────────────────────
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:}
+  auth-token: ${TWILIO_AUTH_TOKEN:}
+  from-number: ${TWILIO_FROM_NUMBER:}
+
+# ── Future: Firebase Push ──────────────────────────────────────
+firebase:
+  server-key: ${FIREBASE_SERVER_KEY:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

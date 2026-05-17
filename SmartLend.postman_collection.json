@@ -1,0 +1,436 @@
+{
+  "info": {
+    "_postman_id": "smartlend-api-collection",
+    "name": "SmartLend API",
+    "description": "Complete API collection for SmartLend — AI-powered loan management platform.\n\nFlow:\n1. Register or Login → token auto-saved to {{token}}\n2. Apply for Loan → loanId auto-saved to {{loanId}}\n3. Login as Admin → approve/reject using {{loanId}}\n\nAll {{token}} headers are injected automatically via collection-level auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "token",  "value": "", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "loanId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth (user-service :8081)",
+      "item": [
+        {
+          "name": "Register Applicant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('token',  body.token);",
+                  "    pm.environment.set('userId', body.userId);",
+                  "    pm.collectionVariables.set('token',  body.token);",
+                  "    pm.collectionVariables.set('userId', body.userId);",
+                  "    console.log('Registered as:', body.email, '| Role:', body.role);",
+                  "    console.log('Token saved ✓');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\",\n  \"fullName\": \"John Doe\",\n  \"phone\": \"9876543210\",\n  \"monthlyIncome\": 75000,\n  \"employmentType\": \"SALARIED\"\n}"
+            },
+            "url": {
+              "raw": "{{user_url}}/api/auth/register",
+              "host": ["{{user_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Register a new applicant. Token is auto-saved to {{token}} and {{userId}}."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('token',  body.token);",
+                  "    pm.environment.set('userId', body.userId);",
+                  "    pm.collectionVariables.set('token',  body.token);",
+                  "    pm.collectionVariables.set('userId', body.userId);",
+                  "    console.log('Logged in as:', body.email, '| Role:', body.role);",
+                  "    console.log('Token saved ✓');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{user_url}}/api/auth/login",
+              "host": ["{{user_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Login and auto-save JWT to {{token}}. Switch email to admin to get admin token."
+          }
+        },
+        {
+          "name": "Login as Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('token',  body.token);",
+                  "    pm.environment.set('userId', body.userId);",
+                  "    pm.collectionVariables.set('token',  body.token);",
+                  "    pm.collectionVariables.set('userId', body.userId);",
+                  "    console.log('Admin logged in:', body.email, '| Role:', body.role);",
+                  "    if (body.role !== 'ADMIN') {",
+                  "        console.warn('WARNING: This user is not ADMIN — role is', body.role);",
+                  "    }",
+                  "    console.log('Token saved ✓');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@smartlend.com\",\n  \"password\": \"Admin@123\"\n}"
+            },
+            "url": {
+              "raw": "{{user_url}}/api/auth/login",
+              "host": ["{{user_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Login as admin. Warns in console if the account is not actually ADMIN role."
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{user_url}}/api/auth/profile/{{userId}}",
+              "host": ["{{user_url}}"],
+              "path": ["api", "auth", "profile", "{{userId}}"]
+            },
+            "description": "Fetch profile for {{userId}}. Token auto-attached."
+          }
+        },
+        {
+          "name": "Admin — Create Admin User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    console.log('New admin created:', body.email);",
+                  "    console.log('Admin userId:', body.userId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@smartlend.com\",\n  \"password\": \"Admin@123\",\n  \"fullName\": \"SmartLend Admin\",\n  \"phone\": \"9000000001\",\n  \"monthlyIncome\": 200000,\n  \"employmentType\": \"SALARIED\"\n}"
+            },
+            "url": {
+              "raw": "{{user_url}}/api/auth/admin/create-admin",
+              "host": ["{{user_url}}"],
+              "path": ["api", "auth", "admin", "create-admin"]
+            },
+            "description": "ADMIN only. Create a new admin user. Must be logged in as an existing admin (token auto-attached)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Loans — Applicant (loan-service :8082)",
+      "item": [
+        {
+          "name": "Apply for Loan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set('loanId', body.id);",
+                  "    pm.collectionVariables.set('loanId', body.id);",
+                  "    console.log('Loan applied — ID:', body.id);",
+                  "    console.log('Credit Score:', body.creditScore, '| Risk:', body.riskLabel);",
+                  "    console.log('Status:', body.status);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",       "value": "application/json" },
+              { "key": "X-User-Id",          "value": "{{userId}}" },
+              { "key": "X-Monthly-Income",   "value": "75000" },
+              { "key": "X-Employment-Type",  "value": "SALARIED" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"principalAmount\": 500000,\n  \"tenureMonths\": 24,\n  \"purpose\": \"Home renovation\"\n}"
+            },
+            "url": {
+              "raw": "{{loan_url}}/api/loans/apply",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "apply"]
+            },
+            "description": "Apply for a loan. loanId is auto-saved to {{loanId}}. Token auto-attached."
+          }
+        },
+        {
+          "name": "My Loans",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{userId}}" }
+            ],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/my",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "my"]
+            },
+            "description": "Get all loans for the current applicant."
+          }
+        },
+        {
+          "name": "EMI Schedule",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/{{loanId}}/emi-schedule",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "{{loanId}}", "emi-schedule"]
+            },
+            "description": "Get the full EMI schedule for {{loanId}}. Available after admin approval."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Loans — Admin (loan-service :8082)",
+      "item": [
+        {
+          "name": "All Loans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/admin/all",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "admin", "all"]
+            },
+            "description": "ADMIN only. Returns all loans across all applicants."
+          }
+        },
+        {
+          "name": "Approve Loan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    console.log('Loan approved — ID:', body.id);",
+                  "    console.log('EMI:', body.emiAmount, '| Rate:', body.interestRate + '%');",
+                  "    console.log('Total Payable:', body.totalPayable);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"APPROVED\",\n  \"adminNote\": \"All documents verified. Approved.\",\n  \"interestRate\": 12.5\n}"
+            },
+            "url": {
+              "raw": "{{loan_url}}/api/loans/admin/{{loanId}}/decision",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "admin", "{{loanId}}", "decision"]
+            },
+            "description": "ADMIN only. Approve loan with interest rate. EMI schedule is auto-generated."
+          }
+        },
+        {
+          "name": "Reject Loan",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"REJECTED\",\n  \"adminNote\": \"Insufficient income for the requested amount.\"\n}"
+            },
+            "url": {
+              "raw": "{{loan_url}}/api/loans/admin/{{loanId}}/decision",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "admin", "{{loanId}}", "decision"]
+            },
+            "description": "ADMIN only. Reject a loan application."
+          }
+        },
+        {
+          "name": "Portfolio Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/admin/summary",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "admin", "summary"]
+            },
+            "description": "ADMIN only. Total loans, pending, active, disbursed amount, and outstanding balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Scoring (ai-scoring :8000)",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ai_url}}/health",
+              "host": ["{{ai_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Score Applicant",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_income\": 75000,\n  \"requested_amount\": 500000,\n  \"tenure_months\": 24,\n  \"employment_type\": \"SALARIED\",\n  \"existing_loans\": 0\n}"
+            },
+            "url": {
+              "raw": "{{ai_url}}/score",
+              "host": ["{{ai_url}}"],
+              "path": ["score"]
+            },
+            "description": "Direct call to the AI scoring engine. Returns credit_score (300-900), risk_label, suggested_rate, recommendation."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "user-service",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{user_url}}/actuator/health",
+              "host": ["{{user_url}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "loan-service",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{loan_url}}/actuator/health",
+              "host": ["{{loan_url}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "notification-service",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{notification_url}}/actuator/health",
+              "host": ["{{notification_url}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "ai-scoring",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ai_url}}/health",
+              "host": ["{{ai_url}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

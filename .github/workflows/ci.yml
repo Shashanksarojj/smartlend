@@ -1,0 +1,65 @@
+name: SmartLend CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  user-service:
+    name: Build user-service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { java-version: '17', distribution: 'temurin' }
+      - name: Build
+        run: cd user-service && mvn clean package -DskipTests
+
+  loan-service:
+    name: Build loan-service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { java-version: '17', distribution: 'temurin' }
+      - name: Build
+        run: cd loan-service && mvn clean package -DskipTests
+
+  notification-service:
+    name: Build notification-service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { java-version: '17', distribution: 'temurin' }
+      - name: Build
+        run: cd notification-service && mvn clean package -DskipTests
+
+  ai-scoring:
+    name: Test AI scoring service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install & test
+        run: |
+          cd ai-scoring
+          pip install -r requirements.txt
+          python -c "from app.main import compute_credit_score, ScoringRequest; r = ScoringRequest(monthly_income=50000, requested_amount=500000, tenure_months=24, employment_type='SALARIED'); print('Score:', compute_credit_score(r))"
+
+  frontend:
+    name: Build React frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - name: Install & build
+        run: |
+          cd frontend
+          npm ci
+          npm run build
