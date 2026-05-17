@@ -111,15 +111,27 @@ All services run via `docker-compose.yml` at the project root.
 - `channel/push/PushChannel.java` — Firebase FCM stub; same pattern
 - `handler/LoanNotificationHandler.java` — converts raw `Map<String,Object>` loan events into `NotificationPayload` with HTML bodies; one method per event type (`handleLoanApproved`, `handleLoanRejected`, `handleEmiDue`)
 - `consumer/LoanEventConsumer.java` — `@RabbitListener`; routes `type` field to `LoanNotificationHandler`
+- `config/RabbitMQConfig.java` — declares durable `loan.events.queue`, `Jackson2JsonMessageConverter`, and `SimpleRabbitListenerContainerFactory` (notification-service is consumer-only; no exchange/binding declared here)
 
 **Config env vars** (from `.env` / docker-compose):
 ```
-SENDGRID_API_KEY          — SendGrid API key (required for email delivery)
-SENDGRID_FROM_EMAIL       — sender address (default: noreply@smartlend.com)
-SENDGRID_FROM_NAME        — sender display name (default: SmartLend)
+# SendGrid (email channel)
+SENDGRID_API_KEY           — SendGrid API key (required for email delivery)
+SENDGRID_FROM_EMAIL        — sender address (default: noreply@smartlend.com)
+SENDGRID_FROM_NAME         — sender display name (default: SmartLend)
+
+# Channel toggles
 NOTIFICATION_EMAIL_ENABLED — true/false (default: true)
 NOTIFICATION_SMS_ENABLED   — true/false (default: false)
 NOTIFICATION_PUSH_ENABLED  — true/false (default: false)
+
+# Twilio SMS — populate when enabling SMS channel
+TWILIO_ACCOUNT_SID         — Twilio account SID
+TWILIO_AUTH_TOKEN          — Twilio auth token
+TWILIO_FROM_NUMBER         — sender phone number (E.164 format)
+
+# Firebase Push — populate when enabling push channel
+FIREBASE_SERVER_KEY        — Firebase server key (FCM legacy API)
 ```
 
 ---

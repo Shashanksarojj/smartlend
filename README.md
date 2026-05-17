@@ -40,6 +40,7 @@ A production-grade full-stack fintech application built with microservices, AI c
 | AI Service | Python 3.11, FastAPI, NumPy |
 | Database | PostgreSQL 15 (one per service), Redis 7 |
 | Messaging | RabbitMQ 3 (TopicExchange, async loan events) |
+| Email | SendGrid (`sendgrid-java:4.10.2`) — HTML transactional email |
 | DevOps | Docker, Docker Compose |
 | Monitoring | Prometheus |
 | API Docs | SpringDoc OpenAPI (Swagger UI) |
@@ -258,6 +259,7 @@ smartlend/
 │
 ├── notification-service/              # Spring Boot — Extensible Async Notifications
 │   └── src/main/java/com/smartlend/notification/
+│       ├── config/        RabbitMQConfig.java (queue, JSON converter, listener factory)
 │       ├── channel/       NotificationChannel.java (interface)
 │       │                  NotificationPayload.java (record)
 │       │                  NotificationDispatcher.java (auto-discovers channels)
