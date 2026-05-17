@@ -238,7 +238,9 @@ Middleware logs every request with UUID `requestId` and sets `X-Request-Id` resp
 | RabbitMQ | CloudAMQP | Little Lemur (free); AMQPS port 5671; `RABBITMQ_SSL=true` |
 
 ### Local (docker-compose)
-Local infra containers were removed. `docker compose up -d` now starts only the 4 microservices + ai-scoring + prometheus, all wired to the cloud providers above via `.env`.
+Local DB/Redis/RabbitMQ containers were removed — replaced by cloud providers above. `docker compose up -d` now starts the 4 microservices + ai-scoring + Prometheus, all wired to cloud infra via `.env`.
+
+**Prometheus** — still runs locally on port 9090; scrapes `/actuator/prometheus` on all Spring Boot services; config at `monitoring/prometheus.yml`. Pair with Grafana for dashboards if needed.
 
 **JWT secret:** `smartlend-super-secret-jwt-key-change-in-prod`  
 **Apple Silicon fix:** All Dockerfiles use `--platform=linux/arm64` + `eclipse-temurin:17-jre-jammy`
