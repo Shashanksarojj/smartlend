@@ -39,6 +39,7 @@ whatsapp:
   phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
   api-version: ${WHATSAPP_API_VERSION:v19.0}
   language-code: ${WHATSAPP_LANGUAGE_CODE:en}
+  webhook-verify-token: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:smartlend-webhook-secret}
   templates:
     loan-approved: ${WHATSAPP_TEMPLATE_LOAN_APPROVED:loan_approved}
     loan-rejected: ${WHATSAPP_TEMPLATE_LOAN_REJECTED:loan_rejected}
