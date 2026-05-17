@@ -104,7 +104,7 @@ All services run via `docker-compose.yml` at the project root.
 
 **Key files:**
 - `channel/NotificationChannel.java` — interface: `channelName()`, `isEnabled()`, `send(NotificationPayload)`
-- `channel/NotificationPayload.java` — immutable record: `eventType`, `recipientEmail`, `recipientName`, `subject`, `body`, `htmlBody`, `metadata`
+- `channel/NotificationPayload.java` — immutable record: `eventType`, `recipientEmail`, `recipientName`, `recipientPhone`, `subject`, `body`, `htmlBody`, `metadata`
 - `channel/NotificationDispatcher.java` — injects `List<NotificationChannel>`; filters by `isEnabled()`, catches per-channel exceptions
 - `channel/email/SendGridEmailChannel.java` — sends HTML (or plain-text fallback) via SendGrid REST API; reads config from `sendgrid.*` props
 - `channel/whatsapp/WhatsAppChannel.java` — sends pre-approved template messages via Meta Graph API (`POST /v19.0/{phoneNumberId}/messages`); normalises Indian phone numbers to E.164; skips silently if `recipientPhone` is null
@@ -113,6 +113,7 @@ All services run via `docker-compose.yml` at the project root.
 - `handler/LoanNotificationHandler.java` — converts raw `Map<String,Object>` loan events into `NotificationPayload` with HTML bodies and phone; one method per event type (`handleLoanApproved`, `handleLoanRejected`, `handleEmiDue`)
 - `consumer/LoanEventConsumer.java` — `@RabbitListener`; routes `type` field to `LoanNotificationHandler`
 - `config/RabbitMQConfig.java` — declares durable `loan.events.queue`, `Jackson2JsonMessageConverter`, and `SimpleRabbitListenerContainerFactory` (notification-service is consumer-only; no exchange/binding declared here)
+- `webhook/WhatsAppWebhookController.java` — `GET /webhook/whatsapp` handles Meta's one-time verification challenge; `POST /webhook/whatsapp` logs delivery statuses (sent/delivered/read/failed) and incoming messages; always returns 200 to prevent Meta retry storms
 
 **Config env vars** (from `.env` / docker-compose):
 ```
@@ -128,18 +129,27 @@ NOTIFICATION_SMS_ENABLED       — true/false (default: false)
 NOTIFICATION_PUSH_ENABLED      — true/false (default: false)
 
 # WhatsApp Cloud API (Meta Graph API)
-WHATSAPP_ACCESS_TOKEN          — permanent/temporary token from Meta Developer console
-WHATSAPP_PHONE_NUMBER_ID       — phone number ID from Meta WhatsApp product settings
-WHATSAPP_API_VERSION           — Graph API version (default: v19.0)
-WHATSAPP_LANGUAGE_CODE         — template language (default: en)
+WHATSAPP_ACCESS_TOKEN           — permanent/temporary token from Meta Developer console
+                                  (temporary token expires every 24h — use System User token in prod)
+WHATSAPP_PHONE_NUMBER_ID        — phone number ID from Meta WhatsApp product settings
+WHATSAPP_API_VERSION            — Graph API version (default: v19.0)
+WHATSAPP_LANGUAGE_CODE          — template language (default: en)
+WHATSAPP_WEBHOOK_VERIFY_TOKEN   — any secret string YOU define; must match what's entered in
+                                  Meta Console → WhatsApp → Configuration → Verify token
 WHATSAPP_TEMPLATE_LOAN_APPROVED — approved template name (default: loan_approved)
 WHATSAPP_TEMPLATE_LOAN_REJECTED — approved template name (default: loan_rejected)
-WHATSAPP_TEMPLATE_EMI_DUE      — approved template name (default: emi_due)
+WHATSAPP_TEMPLATE_EMI_DUE       — approved template name (default: emi_due)
 
 # WhatsApp template parameter order (must match templates created in Meta Business Manager):
 #   loan_approved → {{1}} recipientName  {{2}} amount  {{3}} emiAmount  {{4}} tenureMonths
 #   loan_rejected → {{1}} recipientName  {{2}} loanId
 #   emi_due       → {{1}} recipientName  {{2}} amount  {{3}} dueDate
+
+# WhatsApp sandbox limits:
+#   - Test phone number can only send to numbers added under API Setup → To field
+#   - Max 5 test recipient numbers on free sandbox
+#   - Templates must be UTILITY category (not MARKETING) for faster approval (<1hr)
+#   - Production requires a real business phone number and Meta Business verification
 
 # Twilio SMS — populate when enabling SMS channel
 TWILIO_ACCOUNT_SID         — Twilio account SID

@@ -163,7 +163,7 @@ Authorization: Bearer <admin_token>
 
 ### Notification Service — `http://localhost:8083`
 
-No public HTTP endpoints. Consumes from RabbitMQ queue `loan.events.queue`.
+Consumes from RabbitMQ queue `loan.events.queue`. Also exposes a webhook endpoint for Meta.
 
 **Supported event types** (sent by loan-service on admin decision):
 
@@ -181,6 +181,30 @@ No public HTTP endpoints. Consumes from RabbitMQ queue `loan.events.queue`.
 | WhatsApp | Meta Cloud API | 1,000 conversations/month | ✅ Live (enable via env) |
 | SMS | Twilio | $15 trial | Stub (ready to wire) |
 | Push | Firebase FCM | Unlimited | Stub (ready to wire) |
+
+**WhatsApp webhook endpoints:**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/webhook/whatsapp` | Meta verification challenge (called once during setup) |
+| POST | `/webhook/whatsapp` | Delivery status updates (sent / delivered / read / failed) and incoming messages |
+
+**WhatsApp setup:**
+1. Create Meta App → add WhatsApp product → copy Phone Number ID and Access Token
+2. Create 3 UTILITY templates in Meta Business Manager (`loan_approved`, `loan_rejected`, `emi_due`)
+3. Register webhook: Meta Console → WhatsApp → Configuration → Callback URL = `https://<host>/webhook/whatsapp`, Verify token = `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+4. Subscribe to `messages` webhook field
+5. Add recipient numbers under API Setup (sandbox: max 5 test numbers)
+6. Set `NOTIFICATION_WHATSAPP_ENABLED=true` once templates are approved
+
+**WhatsApp template parameters** (must match order in Meta Business Manager):
+```
+loan_approved → {{1}} name  {{2}} amount  {{3}} emi  {{4}} tenure months
+loan_rejected → {{1}} name  {{2}} loanId
+emi_due       → {{1}} name  {{2}} amount  {{3}} dueDate
+```
+
+**Production webhook note:** On Render the URL is permanent — update Meta's webhook config once from ngrok → Render URL. Free tier cold starts (~30s) are fine; Meta retries on timeout so no events are lost.
 
 **Adding a new notification channel:**
 1. Create a class implementing `NotificationChannel` in a sub-package of `channel/`
@@ -270,13 +294,15 @@ smartlend/
 │   └── src/main/java/com/smartlend/notification/
 │       ├── config/        RabbitMQConfig.java (queue, JSON converter, listener factory)
 │       ├── channel/       NotificationChannel.java (interface)
-│       │                  NotificationPayload.java (record)
+│       │                  NotificationPayload.java (record — includes recipientPhone)
 │       │                  NotificationDispatcher.java (auto-discovers channels)
 │       ├── channel/email/ SendGridEmailChannel.java (HTML email via SendGrid)
+│       ├── channel/whatsapp/ WhatsAppChannel.java (Meta Cloud API template messages)
 │       ├── channel/sms/   SmsChannel.java (Twilio stub — disabled)
 │       ├── channel/push/  PushChannel.java (Firebase stub — disabled)
-│       ├── handler/       LoanNotificationHandler.java (HTML templates per event)
-│       └── consumer/      LoanEventConsumer.java (RabbitMQ listener)
+│       ├── handler/       LoanNotificationHandler.java (HTML templates + WA params per event)
+│       ├── consumer/      LoanEventConsumer.java (RabbitMQ listener)
+│       └── webhook/       WhatsAppWebhookController.java (Meta verification + delivery status)
 │
 ├── ai-scoring/                        # Python FastAPI — Credit Scoring Engine
 │   └── app/main.py                   (DTI + employment + tenure + income scoring)
