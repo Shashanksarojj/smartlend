@@ -56,7 +56,7 @@ export function getErrorMessage(err: unknown): string {
 
 // Auth
 export interface RegisterRequest {
-  name: string;
+  fullName: string;
   email: string;
   password: string;
   monthlyIncome: number;

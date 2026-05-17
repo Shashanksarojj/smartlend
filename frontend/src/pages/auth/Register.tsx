@@ -20,7 +20,7 @@ export default function Register() {
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
-    name: '',
+    fullName: '',
     email: '',
     password: '',
     monthlyIncome: '',
@@ -50,7 +50,7 @@ export default function Register() {
     setIsLoading(true);
     try {
       const user = await authApi.register({
-        name: form.name,
+        fullName: form.fullName,
         email: form.email,
         password: form.password,
         monthlyIncome: income,
@@ -111,8 +111,8 @@ export default function Register() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
               label="Full name"
-              name="name"
-              value={form.name}
+              name="fullName"
+              value={form.fullName}
               onChange={handleChange}
               placeholder="Ravi Kumar"
               autoComplete="name"
