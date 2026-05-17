@@ -20,12 +20,13 @@ public class LoanNotificationHandler {
     private final NotificationDispatcher dispatcher;
 
     public void handleLoanApproved(Map<String, Object> event) {
-        String loanId      = str(event, "loanId");
-        String userEmail   = str(event, "userEmail");
-        String userName    = str(event, "userName", "Valued Customer");
-        String amount      = str(event, "amount");
-        String emiAmount   = str(event, "emiAmount", "N/A");
-        String tenure      = str(event, "tenureMonths", "N/A");
+        String loanId       = str(event, "loanId");
+        String userEmail    = str(event, "userEmail");
+        String userPhone    = str(event, "userPhone");
+        String userName     = str(event, "userName", "Valued Customer");
+        String amount       = str(event, "amount");
+        String emiAmount    = str(event, "emiAmount", "N/A");
+        String tenure       = str(event, "tenureMonths", "N/A");
         String interestRate = str(event, "interestRate", "N/A");
 
         String subject = "Your SmartLend Loan is Approved!";
@@ -86,15 +87,16 @@ public class LoanNotificationHandler {
                 """, userName, loanId, amount, tenure, interestRate, emiAmount);
 
         dispatcher.dispatch(new NotificationPayload(
-                "LOAN_APPROVED", userEmail, userName, subject, plain, html,
-                Map.of("loanId", loanId, "amount", amount)
+                "LOAN_APPROVED", userEmail, userName, userPhone, subject, plain, html,
+                Map.of("loanId", loanId, "amount", amount, "emiAmount", emiAmount, "tenureMonths", tenure)
         ));
     }
 
     public void handleLoanRejected(Map<String, Object> event) {
-        String loanId    = str(event, "loanId");
-        String userEmail = str(event, "userEmail");
-        String userName  = str(event, "userName", "Valued Customer");
+        String loanId     = str(event, "loanId");
+        String userEmail  = str(event, "userEmail");
+        String userPhone  = str(event, "userPhone");
+        String userName   = str(event, "userName", "Valued Customer");
 
         String subject = "Update on Your SmartLend Loan Application";
 
@@ -128,7 +130,7 @@ public class LoanNotificationHandler {
                 """, userName, loanId);
 
         dispatcher.dispatch(new NotificationPayload(
-                "LOAN_REJECTED", userEmail, userName, subject, plain, html,
+                "LOAN_REJECTED", userEmail, userName, userPhone, subject, plain, html,
                 Map.of("loanId", loanId)
         ));
     }
@@ -136,6 +138,7 @@ public class LoanNotificationHandler {
     public void handleEmiDue(Map<String, Object> event) {
         String loanId    = str(event, "loanId");
         String userEmail = str(event, "userEmail");
+        String userPhone = str(event, "userPhone");
         String userName  = str(event, "userName", "Valued Customer");
         String amount    = str(event, "amount");
         String dueDate   = str(event, "dueDate", "soon");
@@ -187,7 +190,7 @@ public class LoanNotificationHandler {
                 """, userName, loanId, amount, dueDate);
 
         dispatcher.dispatch(new NotificationPayload(
-                "EMI_DUE", userEmail, userName, subject, plain, html,
+                "EMI_DUE", userEmail, userName, userPhone, subject, plain, html,
                 Map.of("loanId", loanId, "amount", amount, "dueDate", dueDate)
         ));
     }

@@ -17,6 +17,9 @@ public record NotificationPayload(
     /** Recipient display name — used for personalisation */
     String recipientName,
 
+    /** Recipient phone in any format — WhatsApp/SMS channel normalises to E.164 */
+    String recipientPhone,
+
     /** Email subject / Push notification title / SMS prefix */
     String subject,
 
@@ -29,7 +32,7 @@ public record NotificationPayload(
     /** Arbitrary extra data (loanId, amount, dueDate, etc.) */
     Map<String, Object> metadata
 ) {
-    /** Convenience builder without htmlBody. */
+    /** Convenience builder without htmlBody or phone. */
     public static NotificationPayload of(
             String eventType,
             String recipientEmail,
@@ -37,6 +40,7 @@ public record NotificationPayload(
             String subject,
             String body,
             Map<String, Object> metadata) {
-        return new NotificationPayload(eventType, recipientEmail, recipientName, subject, body, null, metadata);
+        return new NotificationPayload(eventType, recipientEmail, recipientName,
+                null, subject, body, null, metadata);
     }
 }

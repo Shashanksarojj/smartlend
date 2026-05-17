@@ -167,11 +167,20 @@ No public HTTP endpoints. Consumes from RabbitMQ queue `loan.events.queue`.
 
 **Supported event types** (sent by loan-service on admin decision):
 
-| Event type | Trigger | Email sent |
+| Event type | Trigger | Channels |
 |---|---|---|
-| `APPROVED` | Admin approves loan | Branded HTML approval email with loan details + EMI amount |
-| `REJECTED` | Admin rejects loan | Rejection email with reapply guidance |
-| `EMI_DUE` | (future) Scheduled EMI reminder | EMI due date and amount reminder |
+| `APPROVED` | Admin approves loan | Email (HTML) + WhatsApp template |
+| `REJECTED` | Admin rejects loan | Email (HTML) + WhatsApp template |
+| `EMI_DUE` | (future) Scheduled reminder | Email (HTML) + WhatsApp template |
+
+**Active channels:**
+
+| Channel | Provider | Free tier | Status |
+|---|---|---|---|
+| Email | SendGrid | 100 emails/day | ✅ Live |
+| WhatsApp | Meta Cloud API | 1,000 conversations/month | ✅ Live (enable via env) |
+| SMS | Twilio | $15 trial | Stub (ready to wire) |
+| Push | Firebase FCM | Unlimited | Stub (ready to wire) |
 
 **Adding a new notification channel:**
 1. Create a class implementing `NotificationChannel` in a sub-package of `channel/`

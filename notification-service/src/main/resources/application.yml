@@ -24,12 +24,25 @@ notification:
       enabled: ${NOTIFICATION_SMS_ENABLED:false}
     push:
       enabled: ${NOTIFICATION_PUSH_ENABLED:false}
+    whatsapp:
+      enabled: ${NOTIFICATION_WHATSAPP_ENABLED:false}
 
 # ── SendGrid ───────────────────────────────────────────────────
 sendgrid:
   api-key: ${SENDGRID_API_KEY:}
   from-email: ${SENDGRID_FROM_EMAIL:noreply@smartlend.com}
   from-name: ${SENDGRID_FROM_NAME:SmartLend}
+
+# ── WhatsApp Cloud API ─────────────────────────────────────────
+whatsapp:
+  access-token: ${WHATSAPP_ACCESS_TOKEN:}
+  phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+  api-version: ${WHATSAPP_API_VERSION:v19.0}
+  language-code: ${WHATSAPP_LANGUAGE_CODE:en}
+  templates:
+    loan-approved: ${WHATSAPP_TEMPLATE_LOAN_APPROVED:loan_approved}
+    loan-rejected: ${WHATSAPP_TEMPLATE_LOAN_REJECTED:loan_rejected}
+    emi-due: ${WHATSAPP_TEMPLATE_EMI_DUE:emi_due}
 
 # ── Future: Twilio SMS ─────────────────────────────────────────
 twilio:

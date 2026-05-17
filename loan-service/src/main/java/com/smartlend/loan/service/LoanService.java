@@ -99,6 +99,7 @@ public class LoanService {
         UserServiceClient.UserProfile profile = userServiceClient.getProfile(loan.getUserId());
         String userEmail = profile != null ? profile.getEmail() : "";
         String userName  = profile != null ? profile.getFullName() : "Valued Customer";
+        String userPhone = profile != null && profile.getPhone() != null ? profile.getPhone() : "";
 
         if (decision.getDecision() == Loan.LoanStatus.APPROVED) {
             double rate = decision.getInterestRate() != null ? decision.getInterestRate() : 12.0;
@@ -116,14 +117,14 @@ public class LoanService {
 
             rabbitTemplate.convertAndSend(exchange, approvedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
-                       "userName", userName, "amount", loan.getPrincipalAmount(),
+                       "userName", userName, "userPhone", userPhone, "amount", loan.getPrincipalAmount(),
                        "tenureMonths", loan.getTenureMonths(), "interestRate", rate,
                        "emiAmount", emi, "type", "APPROVED"));
             log.debug("Published loan.approved event — loanId={}", loanId);
         } else {
             rabbitTemplate.convertAndSend(exchange, rejectedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
-                       "userName", userName, "type", "REJECTED"));
+                       "userName", userName, "userPhone", userPhone, "type", "REJECTED"));
             log.debug("Published loan.rejected event — loanId={}", loanId);
         }
 
