@@ -6,9 +6,9 @@ spring:
     name: loan-service
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/loandb}
-    username: ${SPRING_DATASOURCE_USERNAME:smartlend}
-    password: ${SPRING_DATASOURCE_PASSWORD:smartlend123}
+    url: ${LOAN_DB_URL:jdbc:postgresql://localhost:5433/loandb}
+    username: ${LOAN_DB_USERNAME:smartlend}
+    password: ${LOAN_DB_PASSWORD:smartlend123}
 
   jpa:
     hibernate:
@@ -19,10 +19,13 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
   rabbitmq:
-    host: ${SPRING_RABBITMQ_HOST:localhost}
-    port: 5672
-    username: ${SPRING_RABBITMQ_USERNAME:smartlend}
-    password: ${SPRING_RABBITMQ_PASSWORD:smartlend123}
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:smartlend}
+    password: ${RABBITMQ_PASSWORD:smartlend123}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    ssl:
+      enabled: ${RABBITMQ_SSL:false}
 
 jwt:
   secret: ${JWT_SECRET:smartlend-super-secret-jwt-key-change-in-prod}

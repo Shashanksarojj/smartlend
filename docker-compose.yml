@@ -1,48 +1,5 @@
 services:
 
-  # ─── Databases ───────────────────────────────────────────────
-  user-db:
-    image: postgres:15-alpine
-    container_name: smartlend-user-db
-    environment:
-      POSTGRES_DB: userdb
-      POSTGRES_USER: smartlend
-      POSTGRES_PASSWORD: smartlend123
-    ports:
-      - "5432:5432"
-    volumes:
-      - user-db-data:/var/lib/postgresql/data
-
-  loan-db:
-    image: postgres:15-alpine
-    container_name: smartlend-loan-db
-    environment:
-      POSTGRES_DB: loandb
-      POSTGRES_USER: smartlend
-      POSTGRES_PASSWORD: smartlend123
-    ports:
-      - "5433:5432"
-    volumes:
-      - loan-db-data:/var/lib/postgresql/data
-
-  # ─── Redis ───────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: smartlend-redis
-    ports:
-      - "6379:6379"
-
-  # ─── RabbitMQ ────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: smartlend-rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: smartlend
-      RABBITMQ_DEFAULT_PASS: smartlend123
-    ports:
-      - "5672:5672"
-      - "15672:15672"   # Management UI at http://localhost:15672
-
   # ─── Microservices ───────────────────────────────────────────
   user-service:
     build: ./user-service
@@ -50,14 +7,15 @@ services:
     ports:
       - "8081:8081"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://user-db:5432/userdb
-      SPRING_DATASOURCE_USERNAME: smartlend
-      SPRING_DATASOURCE_PASSWORD: smartlend123
-      SPRING_REDIS_HOST: redis
-      JWT_SECRET: smartlend-super-secret-jwt-key-change-in-prod
-    depends_on:
-      - user-db
-      - redis
+      USER_DB_URL: ${USER_DB_URL}
+      USER_DB_USERNAME: ${USER_DB_USERNAME}
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SSL: ${REDIS_SSL:-true}
+      JWT_SECRET: ${JWT_SECRET:-smartlend-super-secret-jwt-key-change-in-prod}
 
   loan-service:
     build: ./loan-service
@@ -65,18 +23,19 @@ services:
     ports:
       - "8082:8082"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://loan-db:5432/loandb
-      SPRING_DATASOURCE_USERNAME: smartlend
-      SPRING_DATASOURCE_PASSWORD: smartlend123
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: smartlend
-      SPRING_RABBITMQ_PASSWORD: smartlend123
+      LOAN_DB_URL: ${LOAN_DB_URL}
+      LOAN_DB_USERNAME: ${LOAN_DB_USERNAME}
+      LOAN_DB_PASSWORD: ${LOAN_DB_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_SSL: ${RABBITMQ_SSL:-true}
       AI_SCORING_URL: http://ai-scoring:8000
       USER_SERVICE_URL: http://user-service:8081
-      JWT_SECRET: smartlend-super-secret-jwt-key-change-in-prod
+      JWT_SECRET: ${JWT_SECRET:-smartlend-super-secret-jwt-key-change-in-prod}
     depends_on:
-      - loan-db
-      - rabbitmq
       - ai-scoring
       - user-service
 
@@ -86,9 +45,12 @@ services:
     ports:
       - "8083:8083"
     environment:
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: smartlend
-      SPRING_RABBITMQ_PASSWORD: smartlend123
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_SSL: ${RABBITMQ_SSL:-true}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@smartlend.com}
       SENDGRID_FROM_NAME: ${SENDGRID_FROM_NAME:-SmartLend}
@@ -104,8 +66,6 @@ services:
       WHATSAPP_TEMPLATE_LOAN_APPROVED: ${WHATSAPP_TEMPLATE_LOAN_APPROVED:-loan_approved}
       WHATSAPP_TEMPLATE_LOAN_REJECTED: ${WHATSAPP_TEMPLATE_LOAN_REJECTED:-loan_rejected}
       WHATSAPP_TEMPLATE_EMI_DUE: ${WHATSAPP_TEMPLATE_EMI_DUE:-emi_due}
-    depends_on:
-      - rabbitmq
 
   ai-scoring:
     build: ./ai-scoring
@@ -121,7 +81,3 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-
-volumes:
-  user-db-data:
-  loan-db-data:

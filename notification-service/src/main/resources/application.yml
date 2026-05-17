@@ -6,10 +6,13 @@ spring:
     name: notification-service
 
   rabbitmq:
-    host: ${SPRING_RABBITMQ_HOST:localhost}
-    port: 5672
-    username: ${SPRING_RABBITMQ_USERNAME:smartlend}
-    password: ${SPRING_RABBITMQ_PASSWORD:smartlend123}
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:smartlend}
+    password: ${RABBITMQ_PASSWORD:smartlend123}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    ssl:
+      enabled: ${RABBITMQ_SSL:false}
 
 rabbitmq:
   queue:
