@@ -21,10 +21,12 @@ public class LoanEventConsumer {
         log.info("Received loan event type={} loanId={}", type, event.get("loanId"));
 
         switch (type) {
-            case "APPROVED" -> notificationHandler.handleLoanApproved(event);
-            case "REJECTED" -> notificationHandler.handleLoanRejected(event);
-            case "EMI_DUE"  -> notificationHandler.handleEmiDue(event);
-            default         -> log.warn("Unknown loan event type: {}", type);
+            case "USER_REGISTERED" -> notificationHandler.handleUserRegistered(event);
+            case "LOAN_APPLIED"    -> notificationHandler.handleLoanApplied(event);
+            case "APPROVED"        -> notificationHandler.handleLoanApproved(event);
+            case "REJECTED"        -> notificationHandler.handleLoanRejected(event);
+            case "EMI_DUE"         -> notificationHandler.handleEmiDue(event);
+            default                -> log.warn("Unknown loan event type: {}", type);
         }
     }
 }

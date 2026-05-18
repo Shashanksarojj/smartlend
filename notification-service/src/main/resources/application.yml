@@ -15,6 +15,7 @@ spring:
       enabled: ${RABBITMQ_SSL:false}
 
 rabbitmq:
+  exchange: smartlend.exchange
   queue:
     loan-events: loan.events.queue
 

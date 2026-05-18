@@ -6,8 +6,12 @@ import com.smartlend.user.repository.UserRepository;
 import com.smartlend.user.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +21,13 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final RabbitTemplate rabbitTemplate;
+
+    @Value("${rabbitmq.exchange}")
+    private String exchange;
+
+    @Value("${rabbitmq.routing-key.user-registered}")
+    private String userRegisteredKey;
 
     public AuthDto.AuthResponse register(AuthDto.RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -36,6 +47,13 @@ public class AuthService {
 
         user = userRepository.save(user);
         log.info("New applicant registered: {}", user.getEmail());
+
+        rabbitTemplate.convertAndSend(exchange, userRegisteredKey,
+            Map.of("userId", user.getId(), "userEmail", user.getEmail(),
+                   "userName", user.getFullName(),
+                   "userPhone", user.getPhone() != null ? user.getPhone() : "",
+                   "type", "USER_REGISTERED"));
+        log.debug("Published user.registered event — userId={}", user.getId());
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole().name());
         return buildAuthResponse(user, token);

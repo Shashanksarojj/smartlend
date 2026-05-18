@@ -41,6 +41,8 @@ rabbitmq:
   routing-key:
     loan-approved: loan.approved
     loan-rejected: loan.rejected
+    loan-applied: loan.applied
+    user-registered: user.registered
     emi-due: loan.emi.due
 
 management:

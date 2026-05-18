@@ -87,12 +87,18 @@ All services run via `docker-compose.yml` at the project root.
 - `filter/RequestLoggingFilter.java` — same MDC pattern as user-service
 - `exception/GlobalExceptionHandler.java` — same error format as user-service
 
-**RabbitMQ routing:**
-- Approval: routing key `loan.approved` → queue `loan.events`
-- Rejection: routing key `loan.rejected` → queue `loan.events`
-- **Payload MUST include `"type": "APPROVED"` or `"type": "REJECTED"`** — `LoanEventConsumer` switches on this field; missing it causes silent drop with a warn log
-- **APPROVED payload fields:** `loanId`, `userId`, `userEmail`, `userName`, `userPhone`, `amount`, `tenureMonths`, `interestRate`, `emiAmount`, `type`
-- **REJECTED payload fields:** `loanId`, `userId`, `userEmail`, `userName`, `userPhone`, `type`
+**RabbitMQ routing** (all → queue `loan.events.queue` on exchange `smartlend.exchange`):
+
+| Routing key | Publisher | `type` field | Payload fields |
+|---|---|---|---|
+| `user.registered` | user-service | `USER_REGISTERED` | `userId`, `userEmail`, `userName`, `userPhone` |
+| `loan.applied` | loan-service | `LOAN_APPLIED` | `loanId`, `userId`, `userEmail`, `userName`, `userPhone`, `amount`, `tenureMonths`, `creditScore`, `riskLabel` |
+| `loan.approved` | loan-service | `APPROVED` | `loanId`, `userId`, `userEmail`, `userName`, `userPhone`, `amount`, `tenureMonths`, `interestRate`, `emiAmount` |
+| `loan.rejected` | loan-service | `REJECTED` | `loanId`, `userId`, `userEmail`, `userName`, `userPhone` |
+| `loan.emi.due` | (scheduled) | `EMI_DUE` | `loanId`, `userId`, `userEmail`, `userName`, `userPhone`, `amount`, `dueDate` |
+
+- **`type` field is mandatory** — `LoanEventConsumer` switches on it; missing → silent drop + warn log
+- **Bindings are owned by notification-service** — `notification-service/config/RabbitMQConfig.java` declares all 5 bindings via `Declarables`. Do NOT rely on loan-service or user-service to declare bindings for notification routing.
 
 ---
 
@@ -110,9 +116,9 @@ All services run via `docker-compose.yml` at the project root.
 - `channel/whatsapp/WhatsAppChannel.java` — sends pre-approved template messages via Meta Graph API (`POST /v19.0/{phoneNumberId}/messages`); normalises Indian phone numbers to E.164; skips silently if `recipientPhone` is null
 - `channel/sms/SmsChannel.java` — Twilio stub; `isEnabled()` returns false; wire Twilio SDK here when ready
 - `channel/push/PushChannel.java` — Firebase FCM stub; same pattern
-- `handler/LoanNotificationHandler.java` — converts raw `Map<String,Object>` loan events into `NotificationPayload` with HTML bodies and phone; one method per event type (`handleLoanApproved`, `handleLoanRejected`, `handleEmiDue`)
-- `consumer/LoanEventConsumer.java` — `@RabbitListener`; routes `type` field to `LoanNotificationHandler`
-- `config/RabbitMQConfig.java` — declares durable `loan.events.queue`, `Jackson2JsonMessageConverter`, and `SimpleRabbitListenerContainerFactory` (notification-service is consumer-only; no exchange/binding declared here)
+- `handler/LoanNotificationHandler.java` — HTML templates for all 5 event types: `handleUserRegistered`, `handleLoanApplied`, `handleLoanApproved`, `handleLoanRejected`, `handleEmiDue`
+- `consumer/LoanEventConsumer.java` — `@RabbitListener`; routes `type` field to handler methods
+- `config/RabbitMQConfig.java` — declares `TopicExchange`, durable `loan.events.queue`, ALL 5 bindings via `Declarables`, `Jackson2JsonMessageConverter`, `SimpleRabbitListenerContainerFactory`
 - `webhook/WhatsAppWebhookController.java` — `GET /webhook/whatsapp` handles Meta's one-time verification challenge; `POST /webhook/whatsapp` logs delivery statuses (sent/delivered/read/failed) and incoming messages; always returns 200 to prevent Meta retry storms
 
 **Config env vars** (from `.env` / docker-compose):
@@ -391,6 +397,8 @@ railway logs --service ai-scoring-smartlend
 
 - **RabbitMQ `type` field is mandatory:** `LoanEventConsumer` switches on `event.get("type")`. Publishing without it → silent drop + warn log.
 
+- **notification-service owns all bindings:** Do NOT add `user.registered` or `loan.applied` bindings in loan-service or user-service. `notification-service/config/RabbitMQConfig.java` declares all 5 bindings via `Declarables` — this ensures bindings exist as soon as the consumer starts, regardless of publisher startup order.
+
 - **Spring Security 401/403 bypass `@RestControllerAdvice`:** These are written by `ExceptionTranslationFilter` before the dispatcher servlet. JSON responses require `.exceptionHandling(AuthenticationEntryPoint, AccessDeniedHandler)` in the security config — not in the advice class.
 
 - **Admin decision HTTP method is PUT:** `PUT /api/loans/admin/{loanId}/decision` — not POST. Body field is `decision`, not `status`.
@@ -412,7 +420,8 @@ railway logs --service ai-scoring-smartlend
 | Frontend API calls | `services/api.ts`, `types/index.ts` |
 | Error handling | `GlobalExceptionHandler.java` (both services) + security config `writeError()` |
 | Credit scoring logic | `ai-scoring/app/main.py` |
-| RabbitMQ events | `LoanService.java` (publisher) + `LoanEventConsumer.java` (consumer) |
+| RabbitMQ events | `LoanService.java` + `AuthService.java` (publishers) + `LoanEventConsumer.java` (consumer) |
 | Notification channels | `NotificationChannel.java` (interface) + `NotificationDispatcher.java` + `handler/LoanNotificationHandler.java` |
-| Email templates | `handler/LoanNotificationHandler.java` — HTML bodies for APPROVED / REJECTED / EMI_DUE |
+| Email templates | `handler/LoanNotificationHandler.java` — HTML bodies for USER_REGISTERED / LOAN_APPLIED / APPROVED / REJECTED / EMI_DUE |
 | Adding a new channel | Implement `NotificationChannel`, annotate `@Component` — dispatcher auto-discovers it |
+| Adding a new event | 1. Publish from service with `type` field  2. Add binding in `notification-service/config/RabbitMQConfig.java`  3. Add handler method in `LoanNotificationHandler`  4. Add case in `LoanEventConsumer` |

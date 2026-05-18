@@ -19,6 +19,121 @@ public class LoanNotificationHandler {
 
     private final NotificationDispatcher dispatcher;
 
+    public void handleUserRegistered(Map<String, Object> event) {
+        String userEmail = str(event, "userEmail");
+        String userPhone = str(event, "userPhone");
+        String userName  = str(event, "userName", "Valued Customer");
+
+        String subject = "Welcome to SmartLend!";
+
+        String plain = String.format("""
+                Welcome, %s!
+
+                Your SmartLend account has been created successfully.
+
+                You can now log in and apply for a loan in minutes.
+                Our AI-powered system will evaluate your application instantly.
+
+                — SmartLend Team
+                """, userName);
+
+        String html = String.format("""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+                  <div style="background:#6d28d9;padding:24px;border-radius:8px 8px 0 0">
+                    <h1 style="color:#fff;margin:0">Welcome to SmartLend!</h1>
+                  </div>
+                  <div style="padding:24px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:16px">Hi <strong>%s</strong>,</p>
+                    <p>Your account has been created successfully. You're all set to get started.</p>
+                    <ul style="padding-left:20px;color:#374151">
+                      <li>Apply for a loan in under 2 minutes</li>
+                      <li>AI-powered instant credit scoring</li>
+                      <li>Track your EMI schedule in real time</li>
+                    </ul>
+                    <a href="https://smartlend-ebon.vercel.app/dashboard"
+                       style="display:inline-block;background:#6d28d9;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;margin-top:16px">
+                      Go to Dashboard
+                    </a>
+                    <p style="margin-top:24px;font-size:14px;color:#6b7280">— SmartLend Team</p>
+                  </div>
+                </div>
+                """, userName);
+
+        dispatcher.dispatch(new NotificationPayload(
+                "USER_REGISTERED", userEmail, userName, userPhone, subject, plain, html,
+                Map.of()
+        ));
+    }
+
+    public void handleLoanApplied(Map<String, Object> event) {
+        String loanId      = str(event, "loanId");
+        String userEmail   = str(event, "userEmail");
+        String userPhone   = str(event, "userPhone");
+        String userName    = str(event, "userName", "Valued Customer");
+        String amount      = str(event, "amount");
+        String tenure      = str(event, "tenureMonths");
+        String creditScore = str(event, "creditScore");
+        String riskLabel   = str(event, "riskLabel");
+
+        String subject = "Loan Application Received — SmartLend";
+
+        String plain = String.format("""
+                Dear %s,
+
+                We have received your loan application.
+
+                  Loan ID      : %s
+                  Amount       : ₹%s
+                  Tenure       : %s months
+                  Credit Score : %s (%s)
+
+                Your application is now under review. Our team will notify you once a decision is made.
+
+                — SmartLend Team
+                """, userName, loanId, amount, tenure, creditScore, riskLabel);
+
+        String html = String.format("""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+                  <div style="background:#2563eb;padding:24px;border-radius:8px 8px 0 0">
+                    <h1 style="color:#fff;margin:0">Application Received</h1>
+                  </div>
+                  <div style="padding:24px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:16px">Dear <strong>%s</strong>,</p>
+                    <p>We have received your loan application and it is currently under review.</p>
+                    <table style="width:100%%;border-collapse:collapse;margin:16px 0">
+                      <tr style="border-bottom:1px solid #e5e7eb">
+                        <td style="padding:10px;color:#6b7280">Loan ID</td>
+                        <td style="padding:10px;font-weight:bold">%s</td>
+                      </tr>
+                      <tr style="border-bottom:1px solid #e5e7eb">
+                        <td style="padding:10px;color:#6b7280">Amount Requested</td>
+                        <td style="padding:10px;font-weight:bold">₹%s</td>
+                      </tr>
+                      <tr style="border-bottom:1px solid #e5e7eb">
+                        <td style="padding:10px;color:#6b7280">Tenure</td>
+                        <td style="padding:10px;font-weight:bold">%s months</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px;color:#6b7280">Credit Score</td>
+                        <td style="padding:10px;font-weight:bold">%s <span style="color:#6b7280;font-weight:normal">(%s)</span></td>
+                      </tr>
+                    </table>
+                    <p style="color:#374151">You will be notified by email once a decision has been made.</p>
+                    <a href="https://smartlend-ebon.vercel.app/dashboard"
+                       style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;margin-top:8px">
+                      Track Application
+                    </a>
+                    <p style="margin-top:24px;font-size:14px;color:#6b7280">— SmartLend Team</p>
+                  </div>
+                </div>
+                """, userName, loanId, amount, tenure, creditScore, riskLabel);
+
+        dispatcher.dispatch(new NotificationPayload(
+                "LOAN_APPLIED", userEmail, userName, userPhone, subject, plain, html,
+                Map.of("loanId", loanId, "amount", amount, "creditScore", creditScore)
+        ));
+    }
+
     public void handleLoanApproved(Map<String, Object> event) {
         String loanId       = str(event, "loanId");
         String userEmail    = str(event, "userEmail");

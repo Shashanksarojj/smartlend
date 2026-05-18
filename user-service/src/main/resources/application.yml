@@ -28,6 +28,20 @@ spring:
       ssl:
         enabled: ${REDIS_SSL:false}
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:smartlend}
+    password: ${RABBITMQ_PASSWORD:smartlend123}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    ssl:
+      enabled: ${RABBITMQ_SSL:false}
+
+rabbitmq:
+  exchange: smartlend.exchange
+  routing-key:
+    user-registered: user.registered
+
 jwt:
   secret: ${JWT_SECRET:smartlend-super-secret-jwt-key-change-in-prod}
   expiration: 86400000   # 24 hours in ms

@@ -42,6 +42,9 @@ public class LoanService {
     @Value("${rabbitmq.routing-key.loan-rejected}")
     private String rejectedKey;
 
+    @Value("${rabbitmq.routing-key.loan-applied}")
+    private String appliedKey;
+
     public List<LoanDto.LoanResponse> getMyLoans(String userId) {
         log.debug("Fetching loans for user {}", userId);
         return loanRepository.findByUserId(userId).stream().map(this::mapToResponse).toList();
@@ -82,6 +85,20 @@ public class LoanService {
                 .build();
 
         loan = loanRepository.save(loan);
+
+        UserServiceClient.UserProfile profile = userServiceClient.getProfile(userId);
+        String userEmail = profile != null ? profile.getEmail() : "";
+        String userName  = profile != null ? profile.getFullName() : "Valued Customer";
+        String userPhone = profile != null && profile.getPhone() != null ? profile.getPhone() : "";
+
+        rabbitTemplate.convertAndSend(exchange, appliedKey,
+            Map.of("loanId", loan.getId(), "userId", userId, "userEmail", userEmail,
+                   "userName", userName, "userPhone", userPhone,
+                   "amount", loan.getPrincipalAmount(), "tenureMonths", loan.getTenureMonths(),
+                   "creditScore", loan.getCreditScore(), "riskLabel", loan.getRiskLabel() != null ? loan.getRiskLabel() : "",
+                   "type", "LOAN_APPLIED"));
+        log.debug("Published loan.applied event — loanId={}", loan.getId());
+
         return mapToResponse(loan);
     }
 

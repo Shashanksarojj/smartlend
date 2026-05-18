@@ -23,6 +23,12 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.routing-key.loan-rejected}")
     private String rejectedKey;
 
+    @Value("${rabbitmq.routing-key.loan-applied}")
+    private String appliedKey;
+
+    @Value("${rabbitmq.routing-key.user-registered}")
+    private String userRegisteredKey;
+
     @Bean
     public TopicExchange smartlendExchange() {
         return new TopicExchange(exchange);
@@ -41,6 +47,16 @@ public class RabbitMQConfig {
     @Bean
     public Binding rejectedBinding(Queue loanEventsQueue, TopicExchange smartlendExchange) {
         return BindingBuilder.bind(loanEventsQueue).to(smartlendExchange).with(rejectedKey);
+    }
+
+    @Bean
+    public Binding appliedBinding(Queue loanEventsQueue, TopicExchange smartlendExchange) {
+        return BindingBuilder.bind(loanEventsQueue).to(smartlendExchange).with(appliedKey);
+    }
+
+    @Bean
+    public Binding userRegisteredBinding(Queue loanEventsQueue, TopicExchange smartlendExchange) {
+        return BindingBuilder.bind(loanEventsQueue).to(smartlendExchange).with(userRegisteredKey);
     }
 
     @Bean
