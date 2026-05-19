@@ -109,10 +109,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white',
               accent === 'violet' ? 'bg-violet-500' : 'bg-blue-500'
             )}>
-              {user?.name?.[0]?.toUpperCase() ?? '?'}
+              {user?.fullName?.[0]?.toUpperCase() ?? '?'}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-white">{user?.name}</p>
+              <p className="truncate text-sm font-medium text-white">{user?.fullName}</p>
               <p className="truncate text-xs text-slate-400">{user?.role}</p>
             </div>
           </div>

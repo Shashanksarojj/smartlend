@@ -31,17 +31,25 @@ All services run via `docker-compose.yml` at the project root.
 **Endpoints** (`/api/auth`):
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/register` | Public | Register applicant; returns JWT + full profile |
-| POST | `/login` | Public | Login; returns JWT + full profile |
+| POST | `/register` | Public | Register applicant; sets HttpOnly `auth_token` cookie + returns profile |
+| POST | `/login` | Public | Login; sets HttpOnly `auth_token` cookie + returns profile |
+| POST | `/logout` | Public | Clears the `auth_token` cookie (maxAge=0) |
+| GET | `/me` | Cookie/Bearer | Restore session — validates cookie, returns fresh profile + token |
 | GET | `/profile/{userId}` | Public | Internal use by loan-service |
-| POST | `/admin/create-admin` | Bearer ADMIN | Create admin user |
+| POST | `/admin/create-admin` | Cookie ADMIN | Create admin user; sets cookie for created admin |
+
+**Cookie auth pattern:**
+- `auth_token` cookie: `HttpOnly; Secure; SameSite=${COOKIE_SAME_SITE}`
+- Local dev defaults: `COOKIE_SECURE=false`, `COOKIE_SAME_SITE=Lax`
+- Production (Railway): set `COOKIE_SECURE=true`, `COOKIE_SAME_SITE=None` (cross-site Vercel → Railway)
+- JWT filter reads cookie first, falls back to `Authorization: Bearer` header (for internal service calls)
 
 **Key files:**
 - `model/User.java` — id (UUID), email, password (BCrypt), fullName, phone, panCard, employmentType, monthlyIncome, address, role (APPLICANT/ADMIN), kycStatus (PENDING/VERIFIED/REJECTED)
 - `dto/AuthDto.java` — `RegisterRequest`, `LoginRequest`, `AuthResponse` (includes `userId`, `token`, `role`, `monthlyIncome`, `employmentType`), `UserProfileResponse`
 - `security/JwtUtil.java` — signs/validates JWT; secret from `JWT_SECRET` env var
-- `config/SecurityConfig.java` — JWT `OncePerRequestFilter`; `exceptionHandling` with JSON `AuthenticationEntryPoint` (401) and `AccessDeniedHandler` (403); `/admin/**` requires ROLE_ADMIN; CORS open for `*`
-- `service/AuthService.java` — `register()`, `login()`, `createAdmin()` (sets role=ADMIN + kycStatus=VERIFIED), `buildAuthResponse()`
+- `config/SecurityConfig.java` — JWT filter reads `auth_token` cookie then `Authorization` header; `/admin/**` requires ROLE_ADMIN; `/logout` and `/me` are also declared here
+- `service/AuthService.java` — `register()`, `login()`, `createAdmin()`, `getMyProfile(userId)` (used by /me)
 - `filter/RequestLoggingFilter.java` — MDC `requestId` (8-char UUID), `X-Request-Id` response header, logs `METHOD /uri → STATUS (Xms)`
 - `exception/GlobalExceptionHandler.java` — `@RestControllerAdvice` covering 400 / 401 / 403 / 404 / 422 / 500; see error format section below
 
@@ -338,7 +346,11 @@ The frontend `EmiPayment` type matches `LoanDto.EmiScheduleItem` exactly:
 `RegisterRequest` field: `fullName` (NOT `name`) — backend `@NotBlank` on `fullName`; sending `name` causes a 422
 
 ### Auth flow
-Login/Register → backend returns `AuthUser` (with `token`, `role`, `monthlyIncome`, `employmentType`) → localStorage → Axios request interceptor injects `Authorization: Bearer <token>` → 401 response clears storage and redirects `/login`
+Login/Register → backend sets `auth_token` HttpOnly cookie + returns `AuthUser` → `AuthContext.login()` puts token in module-level `_token` var (in-memory only, never localStorage) + stores profile (without token) in localStorage → `userHttp` sends cookie automatically (`withCredentials: true`) → `loanHttp` sends `Authorization: Bearer <_token>` header → 401 on either clears session and redirects `/login`
+
+**Session restore on page refresh:** `AuthContext` on mount reads profile from localStorage; if present, calls `GET /api/auth/me` using the HttpOnly cookie to get a fresh token; restores `_token` in memory. `isRestoring: true` during this; route guards show a spinner. If cookie is expired, localStorage is cleared and user is redirected to login.
+
+**`AuthUser.token` is optional** — only present on login/register/me API response. Never stored in localStorage. Use `setInMemoryToken()` / `getToken()` from `services/api.ts` to manage it.
 
 ### Role routing
 - Unauthenticated → `<Landing />`
@@ -390,6 +402,14 @@ railway logs --service ai-scoring-smartlend
 ---
 
 ## Key Design Decisions & Gotchas
+
+- **Cookie auth cross-domain:** user-service sets `auth_token` HttpOnly cookie. For production (Vercel → Railway = cross-site), Railway user-service needs `COOKIE_SECURE=true` and `COOKIE_SAME_SITE=None`. For local dev (same-site localhost), defaults `COOKIE_SECURE=false` and `COOKIE_SAME_SITE=Lax` apply. The cookie is only sent back to user-service (same domain). Loan-service (different Railway domain) cannot receive the cookie, so it continues to read `Authorization: Bearer` header. Frontend keeps the token in a module-level `_token` variable (api.ts) for this.
+
+- **`AuthUser.token` is optional:** Only populated on login/register/me responses. The profile stored in localStorage deliberately omits `token`. `_token` in api.ts is the single source of truth for the JWT in the browser — it lives in module scope, is reset on login, and is cleared on logout/401.
+
+- **`/api/auth/me` is authenticated:** Requires a valid `auth_token` cookie. Called by `AuthContext` on mount to restore the in-memory token after a page refresh. Returns full `AuthResponse` including a fresh token.
+
+- **`fullName` field (AuthUser):** Backend sends `fullName` (matches DTO field). Frontend `AuthUser` type has `fullName` (was `name` — now fixed). Layout sidebar uses `user?.fullName`.
 
 - **`monthlyIncome` / `employmentType` in AuthResponse:** Included so `ApplyLoan.tsx` can read them from `useAuth()` without a separate profile call. If you add fields, update `AuthDto.AuthResponse` and `AuthService.buildAuthResponse()`.
 

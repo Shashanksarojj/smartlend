@@ -9,12 +9,19 @@ import { Alert } from '../../components/ui/Alert';
 import { useAuth } from '../../context/AuthContext';
 import { loanApi, scoringApi, getErrorMessage } from '../../services/api';
 import type { ScorePreviewResult } from '../../services/api';
-import { LOAN_PURPOSES, LOAN_TERMS, RISK_CONFIG } from '../../constants';
+import { LOAN_PURPOSES, LOAN_TERMS, RISK_CONFIG, EMPLOYMENT_TYPES } from '../../constants';
 import { formatCurrency, formatPercent, shortId } from '../../utils/formatters';
 import type { Loan } from '../../types';
 
 const PURPOSE_OPTIONS = LOAN_PURPOSES.map((p) => ({ value: p, label: p }));
 const TERM_OPTIONS = LOAN_TERMS.map((t) => ({ value: String(t), label: `${t} months` }));
+const EMPLOYMENT_OPTIONS = EMPLOYMENT_TYPES.map((e) => ({ value: e.value, label: e.label }));
+const EXISTING_LOANS_OPTIONS = [
+  { value: '0', label: 'None' },
+  { value: '1', label: '1 loan' },
+  { value: '2', label: '2 loans' },
+  { value: '3', label: '3+ loans' },
+];
 
 // ── Credit Score Bar ──────────────────────────────────────────
 
@@ -47,7 +54,6 @@ function CreditScoreBar({ score, animate = true }: { score: number; animate?: bo
           style={{ width: `${pct}%` }}
         />
       </div>
-      {/* Range markers */}
       <div className="mt-1 flex justify-between text-[10px] text-slate-400">
         <span>300</span>
         <span>450</span>
@@ -89,7 +95,6 @@ function ScorePreviewCard({
 
   return (
     <div className={`rounded-xl border p-5 ${isApproved ? 'border-emerald-200 bg-emerald-50' : 'border-red-100 bg-red-50'}`}>
-      {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={`flex h-7 w-7 items-center justify-center rounded-full ${isApproved ? 'bg-emerald-100' : 'bg-red-100'}`}>
@@ -112,12 +117,10 @@ function ScorePreviewCard({
         </span>
       </div>
 
-      {/* Score bar */}
       <div className="mb-4">
         <CreditScoreBar score={result.credit_score} />
       </div>
 
-      {/* Stats row */}
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div className="rounded-lg bg-white/70 px-3 py-2.5 text-center">
           <p className="text-xs text-slate-500">Credit Score</p>
@@ -135,12 +138,21 @@ function ScorePreviewCard({
         </div>
       </div>
 
-      {/* Reasoning */}
       <p className="text-xs text-slate-500 italic">{result.reasoning}</p>
-
       <p className="mt-2 text-[10px] text-slate-400">
         * Estimate only. Final score is determined at submission.
       </p>
+    </div>
+  );
+}
+
+// ── Section Divider ───────────────────────────────────────────
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="mb-4">
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
     </div>
   );
 }
@@ -150,7 +162,15 @@ function ScorePreviewCard({
 export default function ApplyLoan() {
   const { user } = useAuth();
 
-  const [form, setForm] = useState({ amount: '', purpose: '', termMonths: '' });
+  const [form, setForm] = useState({
+    amount: '',
+    purpose: '',
+    termMonths: '',
+    monthlyIncome: String(user?.monthlyIncome ?? ''),
+    employmentType: user?.employmentType ?? 'SALARIED',
+    existingLoans: '0',
+  });
+
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState<Loan | null>(null);
@@ -159,12 +179,25 @@ export default function ApplyLoan() {
   const [scoreLoading, setScoreLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch live score preview whenever amount or tenure changes
+  // Re-init income/employment if user loads after mount
+  useEffect(() => {
+    if (user && !form.monthlyIncome) {
+      setForm((prev) => ({
+        ...prev,
+        monthlyIncome: String(user.monthlyIncome ?? ''),
+        employmentType: user.employmentType ?? 'SALARIED',
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Fetch live score preview whenever key inputs change
   useEffect(() => {
     const amount = parseFloat(form.amount);
     const tenure = parseInt(form.termMonths, 10);
+    const income = parseFloat(form.monthlyIncome);
 
-    if (!amount || amount < 10000 || !tenure) {
+    if (!amount || amount < 10000 || !tenure || !income) {
       setScorePreview(null);
       return;
     }
@@ -175,15 +208,14 @@ export default function ApplyLoan() {
       setScoreLoading(true);
       try {
         const result = await scoringApi.preview({
-          monthly_income: user?.monthlyIncome ?? 50000,
+          monthly_income: income,
           requested_amount: amount,
           tenure_months: tenure,
-          employment_type: user?.employmentType ?? 'SALARIED',
-          existing_loans: 0,
+          employment_type: form.employmentType,
+          existing_loans: parseInt(form.existingLoans, 10),
         });
         setScorePreview(result);
       } catch {
-        // Silent — preview is best-effort
         setScorePreview(null);
       } finally {
         setScoreLoading(false);
@@ -193,7 +225,7 @@ export default function ApplyLoan() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [form.amount, form.termMonths, user]);
+  }, [form.amount, form.termMonths, form.monthlyIncome, form.employmentType, form.existingLoans]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -202,9 +234,16 @@ export default function ApplyLoan() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
     const amount = parseFloat(form.amount);
     if (isNaN(amount) || amount < 10000) {
       setError('Minimum loan amount is ₹10,000.');
+      return;
+    }
+
+    const income = parseFloat(form.monthlyIncome);
+    if (isNaN(income) || income <= 0) {
+      setError('Please enter a valid monthly income.');
       return;
     }
 
@@ -213,8 +252,8 @@ export default function ApplyLoan() {
       const loan = await loanApi.apply(
         { principalAmount: amount, purpose: form.purpose, tenureMonths: parseInt(form.termMonths, 10) },
         user!.userId,
-        user?.monthlyIncome ?? 50000,
-        user?.employmentType ?? 'SALARIED'
+        income,
+        form.employmentType
       );
       setSubmitted(loan);
     } catch (err) {
@@ -319,17 +358,18 @@ export default function ApplyLoan() {
 
         {error && <Alert type="error" className="mb-5">{error}</Alert>}
 
-        <div className="space-y-4">
-          {/* Form card */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Loan Details */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <SectionHeader title="Loan Details" />
+            <div className="space-y-5">
               <Input
                 label="Loan amount (₹)"
                 name="amount"
                 type="number"
                 value={form.amount}
                 onChange={handleChange}
-                placeholder="100000"
+                placeholder="e.g. 500000"
                 min={10000}
                 max={5000000}
                 hint="Min ₹10,000 · Max ₹50,00,000"
@@ -353,27 +393,53 @@ export default function ApplyLoan() {
                 placeholder="Select tenure"
                 required
               />
+            </div>
+          </div>
 
-              {/* Profile summary */}
-              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Your Profile</p>
-                <div className="flex items-center gap-4 text-sm">
-                  <div>
-                    <p className="text-xs text-slate-400">Monthly Income</p>
-                    <p className="font-semibold text-slate-700">{formatCurrency(user?.monthlyIncome ?? 0)}</p>
-                  </div>
-                  <div className="h-8 w-px bg-slate-200" />
-                  <div>
-                    <p className="text-xs text-slate-400">Employment</p>
-                    <p className="font-semibold text-slate-700">{user?.employmentType ?? 'N/A'}</p>
-                  </div>
-                </div>
+          {/* Financial Profile */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <SectionHeader
+              title="Financial Profile"
+              subtitle="Pre-filled from your profile — update if your situation has changed."
+            />
+            <div className="space-y-5">
+              <Input
+                label="Current monthly income (₹)"
+                name="monthlyIncome"
+                type="number"
+                value={form.monthlyIncome}
+                onChange={handleChange}
+                placeholder="e.g. 75000"
+                min={1}
+                hint="Your take-home salary or business income per month"
+                required
+              />
+              <Select
+                label="Employment type"
+                name="employmentType"
+                value={form.employmentType}
+                onChange={handleChange}
+                options={EMPLOYMENT_OPTIONS}
+                required
+              />
+              <div>
+                <Select
+                  label="Existing active loans"
+                  name="existingLoans"
+                  value={form.existingLoans}
+                  onChange={handleChange}
+                  options={EXISTING_LOANS_OPTIONS}
+                />
+                <p className="mt-1 text-xs text-slate-400">Include home loans, car loans, personal loans, etc.</p>
               </div>
+            </div>
 
-              <Button type="submit" fullWidth isLoading={isLoading} size="lg">
-                Submit Application
-              </Button>
-            </form>
+            <div className="mt-4 flex items-start gap-2 rounded-lg bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
+              <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              This information is used only for AI credit scoring on this application. It does not update your profile.
+            </div>
           </div>
 
           {/* Live credit score preview */}
@@ -384,11 +450,15 @@ export default function ApplyLoan() {
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-center">
               <p className="text-sm font-medium text-slate-500">Credit Score Preview</p>
               <p className="mt-1 text-xs text-slate-400">
-                Enter a loan amount and tenure above to see your estimated AI credit score instantly.
+                Enter a loan amount, tenure, and income above to see your estimated AI credit score instantly.
               </p>
             </div>
           )}
-        </div>
+
+          <Button type="submit" fullWidth isLoading={isLoading} size="lg">
+            Submit Application
+          </Button>
+        </form>
       </div>
     </Layout>
   );

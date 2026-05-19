@@ -91,6 +91,14 @@ public class AuthService {
                 .build();
     }
 
+    public AuthDto.AuthResponse getMyProfile(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole().name());
+        log.debug("Session restored for userId={}", userId);
+        return buildAuthResponse(user, token);
+    }
+
     public AuthDto.AuthResponse createAdmin(AuthDto.RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already registered");

@@ -46,6 +46,12 @@ jwt:
   secret: ${JWT_SECRET:smartlend-super-secret-jwt-key-change-in-prod}
   expiration: 86400000   # 24 hours in ms
 
+# Cookie flags — override in production (Railway) via env vars
+app:
+  cookie:
+    secure: ${COOKIE_SECURE:false}        # true in prod (HTTPS only)
+    same-site: ${COOKIE_SAME_SITE:Lax}   # None in prod (cross-site Vercel → Railway)
+
 management:
   endpoints:
     web:

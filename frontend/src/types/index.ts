@@ -3,14 +3,15 @@ export type KycStatus = 'PENDING' | 'VERIFIED' | 'REJECTED';
 export type LoanStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DISBURSED' | 'CLOSED';
 export type RiskLabel = 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE';
-export type EmploymentType = 'SALARIED' | 'SELF_EMPLOYED' | 'BUSINESS' | 'FREELANCER';
+export type EmploymentType = 'SALARIED' | 'SELF_EMPLOYED' | 'BUSINESS';
 
 export interface AuthUser {
   userId: string;
   email: string;
-  name: string;
+  fullName: string;
   role: Role;
-  token: string;
+  /** Present only on login/register/me response — never stored in localStorage. */
+  token?: string;
   monthlyIncome?: number;
   employmentType?: EmploymentType;
 }

@@ -7,6 +7,7 @@ import com.smartlend.user.security.JwtUtil;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,8 @@ public class SecurityConfig {
 
     private final JwtUtil jwtUtil;
 
+    static final String COOKIE_NAME = "auth_token";
+
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -55,6 +58,7 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/register",
                     "/api/auth/login",
+                    "/api/auth/logout",
                     "/api/auth/profile/**",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
@@ -66,7 +70,7 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((req, res, authException) ->
                     writeError(res, req, 401, "UNAUTHORIZED",
-                        "Authentication required. Please provide a valid Bearer token."))
+                        "Authentication required. Please log in again."))
                 .accessDeniedHandler((req, res, accessDeniedException) ->
                     writeError(res, req, 403, "FORBIDDEN",
                         "You do not have permission to access this resource. Required role may be ADMIN."))
@@ -81,21 +85,40 @@ public class SecurityConfig {
             @Override
             protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                     throws ServletException, IOException {
-                String header = req.getHeader("Authorization");
-                if (header != null && header.startsWith("Bearer ")) {
+
+                // 1. Prefer HttpOnly cookie
+                String token = extractFromCookie(req);
+
+                // 2. Fallback to Authorization header (loan-service → user-service internal calls)
+                if (token == null) {
+                    String header = req.getHeader("Authorization");
+                    if (header != null && header.startsWith("Bearer ")) {
+                        token = header.substring(7);
+                    }
+                }
+
+                if (token != null) {
                     try {
-                        Claims claims = jwtUtil.validateToken(header.substring(7));
+                        Claims claims = jwtUtil.validateToken(token);
                         String role   = "ROLE_" + claims.get("role", String.class);
                         String userId = claims.getSubject();
                         var auth = new UsernamePasswordAuthenticationToken(
                             userId, null, List.of(new SimpleGrantedAuthority(role)));
                         SecurityContextHolder.getContext().setAuthentication(auth);
                     } catch (Exception e) {
-                        // Token invalid — clear context so Spring Security enforces auth rules
                         SecurityContextHolder.clearContext();
                     }
                 }
                 chain.doFilter(req, res);
+            }
+
+            private String extractFromCookie(HttpServletRequest req) {
+                Cookie[] cookies = req.getCookies();
+                if (cookies == null) return null;
+                for (Cookie cookie : cookies) {
+                    if (COOKIE_NAME.equals(cookie.getName())) return cookie.getValue();
+                }
+                return null;
             }
         };
     }

@@ -42,7 +42,6 @@ export const EMPLOYMENT_TYPES = [
   { value: 'SALARIED',      label: 'Salaried' },
   { value: 'SELF_EMPLOYED', label: 'Self Employed' },
   { value: 'BUSINESS',      label: 'Business Owner' },
-  { value: 'FREELANCER',    label: 'Freelancer' },
 ] as const;
 
 export const LOAN_TERMS = [6, 12, 18, 24, 36, 48, 60] as const;

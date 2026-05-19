@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosError } from 'axios';
 import type {
   AuthUser,
   Loan,
@@ -11,38 +11,59 @@ import type {
 const USER_BASE = process.env.REACT_APP_USER_URL ?? 'http://localhost:8081/api';
 const LOAN_BASE = process.env.REACT_APP_LOAN_URL ?? 'http://localhost:8082/api';
 
-function createInstance(baseURL: string): AxiosInstance {
-  return axios.create({ baseURL, headers: { 'Content-Type': 'application/json' } });
+// ── In-memory token ───────────────────────────────────────────
+// Never written to localStorage — survives only for the current browser session.
+// On page refresh, AuthContext restores it via GET /api/auth/me (uses the HttpOnly cookie).
+let _token: string | null = null;
+export function setInMemoryToken(token: string | null): void { _token = token; }
+
+// ── Axios instances ───────────────────────────────────────────
+
+// user-service: credentials (HttpOnly cookie) sent automatically; no Authorization header needed
+const userHttp = axios.create({
+  baseURL: USER_BASE,
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// loan-service: different domain — cookie won't reach it; use in-memory token in Authorization header
+const loanHttp = axios.create({
+  baseURL: LOAN_BASE,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// ── Shared 401 handler ────────────────────────────────────────
+
+function handleUnauthorized() {
+  setInMemoryToken(null);
+  localStorage.removeItem('smartlend_user');
+  const isAuthPage = ['/login', '/register'].includes(window.location.pathname);
+  if (!isAuthPage) window.location.href = '/login';
 }
 
-const userHttp = createInstance(USER_BASE);
-const loanHttp = createInstance(LOAN_BASE);
+// userHttp: 401 → clear session and redirect
+userHttp.interceptors.response.use(
+  (res) => res,
+  (err: AxiosError) => {
+    if (err.response?.status === 401) handleUnauthorized();
+    return Promise.reject(err);
+  }
+);
 
-function attachInterceptors(instance: AxiosInstance): void {
-  instance.interceptors.request.use((config) => {
-    const raw = localStorage.getItem('smartlend_user');
-    if (raw) {
-      const user: AuthUser = JSON.parse(raw);
-      config.headers.Authorization = `Bearer ${user.token}`;
-    }
-    return config;
-  });
+// loanHttp: inject Bearer token from memory; 401 → clear session and redirect
+loanHttp.interceptors.request.use((config) => {
+  if (_token) config.headers.Authorization = `Bearer ${_token}`;
+  return config;
+});
+loanHttp.interceptors.response.use(
+  (res) => res,
+  (err: AxiosError) => {
+    if (err.response?.status === 401) handleUnauthorized();
+    return Promise.reject(err);
+  }
+);
 
-  instance.interceptors.response.use(
-    (res) => res,
-    (err: AxiosError) => {
-      const isAuthPage = ['/login', '/register'].includes(window.location.pathname);
-      if (err.response?.status === 401 && !isAuthPage) {
-        localStorage.removeItem('smartlend_user');
-        window.location.href = '/login';
-      }
-      return Promise.reject(err);
-    }
-  );
-}
-
-attachInterceptors(userHttp);
-attachInterceptors(loanHttp);
+// ── Error helper ──────────────────────────────────────────────
 
 export function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -54,7 +75,8 @@ export function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Something went wrong';
 }
 
-// Auth
+// ── Auth API ──────────────────────────────────────────────────
+
 export interface RegisterRequest {
   fullName: string;
   email: string;
@@ -75,11 +97,18 @@ export const authApi = {
   login: (data: LoginRequest) =>
     userHttp.post<AuthUser>('/auth/login', data).then((r) => r.data),
 
+  /** Restore session using the HttpOnly cookie — returns fresh profile + token. */
+  me: () => userHttp.get<AuthUser>('/auth/me').then((r) => r.data),
+
+  /** Clear the HttpOnly cookie server-side. */
+  logout: () => userHttp.post<void>('/auth/logout').then(() => {}),
+
   createAdmin: (data: RegisterRequest) =>
     userHttp.post<AuthUser>('/auth/admin/create-admin', data).then((r) => r.data),
 };
 
-// AI Scoring preview (called directly — separate service on :8000)
+// ── AI Scoring preview ────────────────────────────────────────
+
 const AI_BASE = process.env.REACT_APP_AI_URL ?? 'http://localhost:8000';
 const aiHttp = axios.create({ baseURL: AI_BASE, headers: { 'Content-Type': 'application/json' } });
 
@@ -104,7 +133,8 @@ export const scoringApi = {
     aiHttp.post<ScorePreviewResult>('/score', data).then((r) => r.data),
 };
 
-// Loans
+// ── Loan API ──────────────────────────────────────────────────
+
 export const loanApi = {
   apply: (data: ApplyLoanRequest, userId: string, monthlyIncome: number, employmentType: string) =>
     loanHttp
