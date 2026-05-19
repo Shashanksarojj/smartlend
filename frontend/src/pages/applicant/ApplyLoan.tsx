@@ -179,16 +179,17 @@ export default function ApplyLoan() {
   const [scoreLoading, setScoreLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-init income/employment if user loads after mount
+  // Re-init income/employment once when user first loads (e.g. after session restore)
+  const didInitRef = useRef(false);
   useEffect(() => {
-    if (user && !form.monthlyIncome) {
+    if (user && !didInitRef.current) {
+      didInitRef.current = true;
       setForm((prev) => ({
         ...prev,
-        monthlyIncome: String(user.monthlyIncome ?? ''),
-        employmentType: user.employmentType ?? 'SALARIED',
+        monthlyIncome: prev.monthlyIncome || String(user.monthlyIncome ?? ''),
+        employmentType: prev.employmentType || user.employmentType || 'SALARIED',
       }));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // Fetch live score preview whenever key inputs change
