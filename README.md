@@ -57,6 +57,7 @@ A production-grade full-stack fintech application built with microservices, AI c
 ## Features
 
 - **AI Credit Scoring** — Rule-based model (DTI ratio, employment type, tenure, income band) produces a 300–900 credit score and risk label (LOW / MEDIUM / HIGH) in milliseconds
+- **HttpOnly Cookie Auth** — JWT served as `HttpOnly; Secure; SameSite` cookie (not localStorage); immune to XSS token theft. In-memory token for cross-domain loan-service calls. Session restored on page refresh via `GET /api/auth/me` using the persisted cookie.
 - **JWT Role-based Auth** — APPLICANT and ADMIN roles; same portal, different views; admin endpoints protected at filter chain level
 - **EMI Engine** — Standard reducing-balance amortization on loan approval; full installment schedule with principal, interest, and balance per month
 - **Transactional Email at Every Step** — Emails sent on registration (welcome), loan application received (with AI credit score), approval, and rejection via SendGrid HTML templates
@@ -112,11 +113,20 @@ Register a user, then run this SQL in the **Neon SQL editor**:
 UPDATE users SET role='ADMIN' WHERE email='admin@example.com';
 ```
 
-Or use the API (requires an existing admin token):
+Or use the API (requires an existing admin cookie session):
 ```
 POST /api/auth/admin/create-admin
-Authorization: Bearer <admin_token>
+Cookie: auth_token=<jwt>
 ```
+
+### 5. Set cookie env vars on Railway (production only)
+
+On the Railway **user-service** deployment, add:
+```
+COOKIE_SECURE=true
+COOKIE_SAME_SITE=None
+```
+These are required for cross-site cookie delivery (Vercel → Railway). Local dev uses `SameSite=Lax` by default.
 
 ---
 
@@ -146,10 +156,12 @@ https://ai-scoring-smartlend.up.railway.app/docs
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/api/auth/register` | Public | Register applicant; returns JWT + profile; triggers welcome email |
-| POST | `/api/auth/login` | Public | Login; returns JWT + profile |
+| POST | `/api/auth/register` | Public | Register applicant; sets HttpOnly `auth_token` cookie + returns profile; triggers welcome email |
+| POST | `/api/auth/login` | Public | Login; sets HttpOnly `auth_token` cookie + returns profile |
+| POST | `/api/auth/logout` | Public | Clears the `auth_token` cookie (maxAge=0) |
+| GET | `/api/auth/me` | Cookie | Restore session — validates cookie, returns fresh profile + token |
 | GET | `/api/auth/profile/{userId}` | Public | Internal use by loan-service |
-| POST | `/api/auth/admin/create-admin` | Bearer (ADMIN) | Create a new admin user |
+| POST | `/api/auth/admin/create-admin` | Cookie (ADMIN) | Create a new admin user |
 
 ### Loan Service — `http://localhost:8082`
 
