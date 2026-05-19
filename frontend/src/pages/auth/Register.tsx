@@ -114,7 +114,7 @@ export default function Register() {
               name="fullName"
               value={form.fullName}
               onChange={handleChange}
-              placeholder="Ravi Kumar"
+              placeholder="Shashank Dwivedi"
               autoComplete="name"
               required
             />
@@ -124,7 +124,7 @@ export default function Register() {
               type="email"
               value={form.email}
               onChange={handleChange}
-              placeholder="ravi@example.com"
+              placeholder="shashank@example.com"
               autoComplete="email"
               required
             />
