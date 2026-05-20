@@ -366,32 +366,109 @@ multiple times due to forward/include chains).
 
 ---
 
-### 5. Proxy / Decorator Pattern — Axios Interceptors
+### 5. Factory + Decorator Pattern — `createHttpClient` & Axios Interceptors
 
 **Where:** `frontend/src/services/api.ts`
 
-Interceptors transparently add behavior to every HTTP request/response
-without modifying the calling code.
+#### The problem with manual axios instances
+
+The naive approach creates each instance separately and duplicates interceptor
+logic across them:
 
 ```typescript
-// Every outgoing loanHttp request automatically gets the token header
-loanHttp.interceptors.request.use((config) => {
-    if (_token) config.headers.Authorization = `Bearer ${_token}`;
-    return config;  // decorated config
+// ❌ Duplicated — both instances wire the same 401 handler separately
+userHttp.interceptors.response.use(res => res, err => {
+    if (err.response?.status === 401) handleUnauthorized();
+    return Promise.reject(err);
 });
-
-// Every response automatically handles 401 uniformly
-loanHttp.interceptors.response.use(
-    (res) => res,
-    (err) => {
-        if (err.response?.status === 401) handleUnauthorized();  // clears session
-        return Promise.reject(err);
-    }
-);
+loanHttp.interceptors.response.use(res => res, err => {
+    if (err.response?.status === 401) handleUnauthorized();
+    return Promise.reject(err);
+});
+// No timeout. No retry. No request tracing. Each new service doubles the boilerplate.
 ```
 
-The page that calls `loanApi.myLoans()` never thinks about auth headers. The
-interceptor is the transparent proxy layer.
+#### The factory solution
+
+```typescript
+function createHttpClient({
+  baseURL,
+  withCredentials = false,
+  timeout = 10_000,   // fail after 10s — not hang forever
+  retries = 2,
+  getToken,           // lazy callback — reads _token at request time
+  onUnauthorized,     // called exactly once on 401
+}: HttpClientOptions): AxiosInstance {
+  const instance = axios.create({ baseURL, withCredentials, timeout,
+    headers: { 'Content-Type': 'application/json' } });
+
+  // 1. Inject Bearer token + correlation ID
+  instance.interceptors.request.use((config) => {
+    const token = getToken?.();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    config.headers['X-Request-Id'] = crypto.randomUUID(); // traces request in server logs
+    return config;
+  });
+
+  // 2. Retry on transient failures only
+  instance.interceptors.response.use(res => res, async (err) => {
+    const status = err.response?.status;
+    if (status === 401) { onUnauthorized?.(); return Promise.reject(err); }
+
+    // 4xx = client mistake → surface immediately, never retry
+    const isClientError = status >= 400 && status < 500;
+    const canRetry = !isClientError && config._retryCount < retries;
+    if (canRetry) {
+      config._retryCount++;
+      await sleep(2 ** config._retryCount * 300); // 300ms → 600ms exponential backoff
+      return instance(config);
+    }
+    return Promise.reject(err);
+  });
+
+  return instance;
+}
+```
+
+Three instances, zero duplicated interceptor logic:
+
+```typescript
+const userHttp = createHttpClient({ baseURL: USER_BASE, withCredentials: true,
+                                    onUnauthorized: handleUnauthorized });
+const loanHttp = createHttpClient({ baseURL: LOAN_BASE, getToken,
+                                    onUnauthorized: handleUnauthorized });
+const aiHttp   = createHttpClient({ baseURL: AI_BASE }); // no auth
+```
+
+#### What each feature buys you
+
+| Feature | Without it | With it |
+|---|---|---|
+| `timeout: 10_000` | Request hangs forever if server stalls | Throws after 10s, triggers retry |
+| `retries: 2` with backoff | One flaky request = user sees error | 2 auto-retries (300ms, 600ms) absorb transient spikes |
+| 4xx never retried | — | `422 VALIDATION_ERROR` surfaces immediately instead of retrying 3× |
+| `X-Request-Id` header | Can't correlate browser request with server log line | UUID matches `[requestId]` in Logback MDC — trace end-to-end |
+| `getToken` callback | Stale closure captures token value at creation time | Reads current `_token` lazily at request time |
+| `onUnauthorized` callback | Each instance re-implements logout logic | Single handler, wired once per instance |
+
+#### Interceptors are the Decorator pattern
+
+The calling code never knows cross-cutting concerns exist:
+
+```typescript
+// This is all the page sees — no headers, no retry logic, no 401 handling
+loanApi.myLoans(userId);
+
+// What actually happens under the hood:
+// 1. Request interceptor adds Authorization + X-Request-Id
+// 2. Axios sends the request (with 10s timeout)
+// 3. If 5xx → retry up to 2× with exponential backoff
+// 4. If 401 → handleUnauthorized() clears session and redirects
+// 5. Page receives clean data or a normalized error
+```
+
+This is the Decorator pattern: behavior layered onto the base HTTP call
+transparently, without modifying the caller.
 
 ---
 
@@ -1135,13 +1212,14 @@ This is the fundamental advantage of async messaging over synchronous HTTP for n
 
 **A:** Two different authentication strategies:
 - `userHttp` → `withCredentials: true` → browser auto-sends the HttpOnly cookie
-- `loanHttp` → manually sets `Authorization: Bearer <token>` header
+- `loanHttp` → manually sets `Authorization: Bearer <token>` header (different Railway domain, cookie never reaches it)
+- `aiHttp` → no auth at all (public scoring endpoint)
 
-If you used one Axios instance for both, you'd need to conditionally add/remove headers
-based on which service you're calling — messy and error-prone.
+If you used one Axios instance for all three, you'd need to conditionally add/remove
+headers based on which service you're calling — messy and error-prone.
 
-Two instances also let you configure different base URLs, timeouts, and interceptors
-independently.
+All three are created via the `createHttpClient()` factory so timeout, retry, and
+request tracing are consistent without any per-instance boilerplate.
 
 ### Q6: Why Redis in user-service? What does it actually do here?
 
@@ -1265,6 +1343,52 @@ The circuit breaker pattern solves three problems that try/catch does not:
 
 **Interview angle:** The circuit breaker is a *stability pattern*, not a *reliability pattern*. It doesn't make the AI service more reliable — it prevents a single slow/failing dependency from taking down your whole service.
 
+### Q14: Why retry only on 5xx and network errors — why not retry on 4xx too?
+
+**A:** Because 4xx means the client sent a bad request. Retrying it will produce the exact same 4xx every time — it just adds latency and hides the real bug.
+
+```
+400 BAD_REQUEST        → client sent malformed data → fix the payload, don't retry
+401 UNAUTHORIZED       → sign out immediately, never retry (retrying makes no sense without re-auth)
+403 FORBIDDEN          → wrong role → retrying won't change your role mid-request
+404 NOT_FOUND          → resource doesn't exist → retrying won't create it
+422 VALIDATION_ERROR   → field failed @NotBlank → retrying identical data fails identically
+```
+
+5xx is different — it means the server failed, not the client:
+```
+500 INTERNAL_SERVER_ERROR → unhandled exception → might succeed on retry
+502 BAD_GATEWAY           → upstream timeout → transient, worth retrying
+503 SERVICE_UNAVAILABLE   → temporary overload → backoff + retry is correct response
+```
+
+Network errors (no `response` at all) are also retryable: connection reset, DNS hiccup,
+Railway cold-start. The exponential backoff (300ms → 600ms) gives the server time to recover
+before the second attempt.
+
+**Rule:** `status >= 400 && status < 500` → reject immediately. Anything else → retry up to N times with backoff.
+
+### Q15: What is `X-Request-Id` and why does the frontend generate it?
+
+**A:** Every `createHttpClient` request interceptor does:
+```typescript
+config.headers['X-Request-Id'] = crypto.randomUUID();
+```
+
+The backend `RequestLoggingFilter` reads this header and puts it in the MDC:
+```
+2026-05-21 10:30:15 INFO [loan-service] [a3f9bc12] POST /api/loans/apply → 201 (312ms)
+2026-05-21 10:30:15 INFO [loan-service] [a3f9bc12] AI score result — user=abc score=720
+```
+
+Every log line for that request carries the same UUID. When a user reports a bug,
+you ask them to open browser devtools → Network tab → copy the `X-Request-Id` from
+any request header. Paste it into your log aggregator — all log lines for that exact
+user action appear instantly, across services.
+
+Without this, debugging a failed loan application means grepping by timestamp and
+hoping no other requests interleaved.
+
 ---
 
 ## Quick Reference: File to Read First by Topic
@@ -1279,6 +1403,7 @@ The circuit breaker pattern solves three problems that try/catch does not:
 | How RabbitMQ events are published | `AuthService.java` (register) + `LoanService.java` (processAdminDecision) |
 | How events are consumed | `LoanEventConsumer.java` |
 | How the frontend manages auth | `AuthContext.tsx` + `services/api.ts` |
+| How HTTP clients are built (retry, timeout, tracing) | `services/api.ts` — `createHttpClient()` factory |
 | How errors are standardized | `GlobalExceptionHandler.java` + `SecurityConfig.java` (writeError) |
 | How distributed tracing works | `RequestLoggingFilter.java` |
 | How circuit breaker protects loan-service | `AiScoringClient.java` + `UserServiceClient.java` + `application.yml` (resilience4j section) |
