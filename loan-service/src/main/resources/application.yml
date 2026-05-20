@@ -45,8 +45,33 @@ rabbitmq:
     user-registered: user.registered
     emi-due: loan.emi.due
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai-scoring:
+        sliding-window-size: 10               # evaluate last 10 calls
+        minimum-number-of-calls: 5            # need at least 5 before opening
+        failure-rate-threshold: 50            # open if 50%+ of calls fail
+        wait-duration-in-open-state: 30s      # stay open 30s before retrying
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.Exception
+      user-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s      # shorter — user profile is less critical
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.Exception
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+  health:
+    circuitbreakers:
+      enabled: true

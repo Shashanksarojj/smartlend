@@ -88,8 +88,8 @@ All services run via `docker-compose.yml` at the project root.
 
 **Key files:**
 - `service/LoanService.java` — full loan flow; standard reducing-balance EMI formula; fetches user profile via `UserServiceClient` before publishing events
-- `client/AiScoringClient.java` — HTTP call to ai-scoring; fallback rule-based scoring if service is down
-- `client/UserServiceClient.java` — calls `GET /api/auth/profile/{userId}` on user-service to get `email` and `fullName` for RabbitMQ events
+- `client/AiScoringClient.java` — HTTP call to ai-scoring; **Resilience4j circuit breaker** (`ai-scoring` instance, 30s open state); fallback uses DTI-ratio rule-based scoring
+- `client/UserServiceClient.java` — calls `GET /api/auth/profile/{userId}` on user-service; **Resilience4j circuit breaker** (`user-service` instance, 15s open state); fallback returns null (LoanService handles gracefully)
 - `config/LoanSecurityConfig.java` — same pattern as user-service SecurityConfig; JSON 401/403 handlers wired via `exceptionHandling()`
 - `config/RabbitMQConfig.java` — `TopicExchange("smartlend.exchange")`, queue `loan.events`
 - `filter/RequestLoggingFilter.java` — same MDC pattern as user-service
@@ -428,6 +428,8 @@ railway logs --service ai-scoring-smartlend
 - **Spring Security 401/403 bypass `@RestControllerAdvice`:** These are written by `ExceptionTranslationFilter` before the dispatcher servlet. JSON responses require `.exceptionHandling(AuthenticationEntryPoint, AccessDeniedHandler)` in the security config — not in the advice class.
 
 - **Admin decision HTTP method is PUT:** `PUT /api/loans/admin/{loanId}/decision` — not POST. Body field is `decision`, not `status`.
+
+- **Resilience4j circuit breaker — `@CircuitBreaker` requires AOP:** `spring-boot-starter-aop` must be on the classpath or the annotation is silently ignored. Both are declared in `loan-service/pom.xml`. Fallback method signature must match the primary method signature **plus a trailing `Throwable` parameter**. The circuit breaker name in `@CircuitBreaker(name="ai-scoring")` must match the key under `resilience4j.circuitbreaker.instances` in `application.yml`. Health state is exposed at `/actuator/health` (`management.health.circuitbreakers.enabled: true`).
 
 - **CRA + TypeScript 5:** CRA 5 peer dep declares `typescript@^4` but works with TS5. Always install with `npm install --legacy-peer-deps`. `frontend/.npmrc` has `legacy-peer-deps=true` so Vercel and CI pick it up automatically.
 

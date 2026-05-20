@@ -62,6 +62,7 @@ A production-grade full-stack fintech application built with microservices, AI c
 - **EMI Engine** — Standard reducing-balance amortization on loan approval; full installment schedule with principal, interest, and balance per month
 - **Transactional Email at Every Step** — Emails sent on registration (welcome), loan application received (with AI credit score), approval, and rejection via SendGrid HTML templates
 - **Async Notifications** — RabbitMQ TopicExchange decouples all events from delivery; notification-service uses an extensible `NotificationChannel` interface — SendGrid email and WhatsApp (Meta Cloud API) are live, SMS (Twilio) and Push (Firebase) are stubbed
+- **Resilience4j Circuit Breaker** — `@CircuitBreaker` on `AiScoringClient` and `UserServiceClient`; ai-scoring trips after 50% failure rate (30s open state, DTI-ratio fallback scoring); user-service trips at 50% (15s open, returns null gracefully); health state visible at `/actuator/health`
 - **Structured Logging** — Logback rolling files + MDC `requestId` propagated across every log line; `X-Request-Id` response header for end-to-end tracing
 - **Global Error Format** — All 4xx/5xx responses (including Spring Security 401/403) return consistent JSON; never HTML or empty body
 - **Admin Panel** — Approve/reject loans with custom interest rate and admin note; inline form per row; optimistic UI update

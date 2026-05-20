@@ -1,5 +1,6 @@
 package com.smartlend.loan.client;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,16 +18,18 @@ public class UserServiceClient {
     @Value("${services.user-service-url}")
     private String userServiceUrl;
 
+    @CircuitBreaker(name = "user-service", fallbackMethod = "fallbackProfile")
     public UserProfile getProfile(String userId) {
-        try {
-            return restTemplate.getForObject(
-                userServiceUrl + "/api/auth/profile/" + userId,
-                UserProfile.class
-            );
-        } catch (Exception e) {
-            log.warn("Could not fetch profile for userId={}: {}", userId, e.getMessage());
-            return null;
-        }
+        return restTemplate.getForObject(
+            userServiceUrl + "/api/auth/profile/" + userId,
+            UserProfile.class
+        );
+    }
+
+    // Called by the circuit breaker when open or when getProfile() throws
+    private UserProfile fallbackProfile(String userId, Throwable t) {
+        log.warn("User-service circuit breaker fallback for userId={}. Cause: {}", userId, t.getMessage());
+        return null;  // LoanService handles null gracefully with default name/email/phone
     }
 
     @Data

@@ -1,6 +1,7 @@
 package com.smartlend.loan.client;
 
 import com.smartlend.loan.dto.ScoringDto;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,21 +18,18 @@ public class AiScoringClient {
     @Value("${services.ai-scoring-url}")
     private String aiScoringUrl;
 
+    @CircuitBreaker(name = "ai-scoring", fallbackMethod = "fallbackScore")
     public ScoringDto.ScoringResponse getScore(ScoringDto.ScoringRequest request) {
-        try {
-            return restTemplate.postForObject(
-                aiScoringUrl + "/score",
-                request,
-                ScoringDto.ScoringResponse.class
-            );
-        } catch (Exception e) {
-            log.error("AI scoring service unavailable, using fallback. Error: {}", e.getMessage());
-            return fallbackScore(request);
-        }
+        return restTemplate.postForObject(
+            aiScoringUrl + "/score",
+            request,
+            ScoringDto.ScoringResponse.class
+        );
     }
 
-    // Fallback rule-based scoring if AI service is down
-    private ScoringDto.ScoringResponse fallbackScore(ScoringDto.ScoringRequest req) {
+    // Called by the circuit breaker when open or when getScore() throws
+    private ScoringDto.ScoringResponse fallbackScore(ScoringDto.ScoringRequest req, Throwable t) {
+        log.error("AI scoring circuit breaker fallback triggered. Cause: {}", t.getMessage());
         ScoringDto.ScoringResponse response = new ScoringDto.ScoringResponse();
         double ratio = req.getRequestedAmount() / (req.getMonthlyIncome() * 12);
 
@@ -51,7 +49,7 @@ public class AiScoringClient {
             response.setSuggestedRate(18.0);
             response.setRecommendation("REJECT");
         }
-        response.setReasoning("Fallback rule-based scoring");
+        response.setReasoning("Fallback rule-based scoring (ai-scoring unavailable)");
         return response;
     }
 }

@@ -1,3 +1,4 @@
+
 # SmartLend — Engineering Deep Dive
 
 > A complete learning guide: how the system was designed, why every decision was made,
@@ -394,27 +395,113 @@ interceptor is the transparent proxy layer.
 
 ---
 
-### 6. Circuit Breaker / Fallback Pattern — AiScoringClient
+### 6. Circuit Breaker / Fallback Pattern — AiScoringClient & UserServiceClient
 
-**Where:** `loan-service/client/AiScoringClient.java`
+**Where:** `loan-service/client/AiScoringClient.java`, `loan-service/client/UserServiceClient.java`
+
+**The problem with plain try/catch:**
 
 ```java
+// ❌ Naive — waits for every timeout, no protection
 public ScoringDto.ScoringResponse getScore(ScoringDto.ScoringRequest request) {
     try {
         return restTemplate.postForObject(aiScoringUrl + "/score", request, ...);
     } catch (Exception e) {
-        log.error("AI scoring unavailable, using fallback: {}", e.getMessage());
-        return fallbackScore(request);  // ← degraded but functional
+        return fallbackScore(request);
     }
 }
 ```
 
+If ai-scoring is down, every single loan application waits the full 5-second read
+timeout before hitting the fallback. Under load, you accumulate hundreds of blocked
+threads — this cascades into your loan-service becoming unresponsive.
+
+**The circuit breaker solution (Resilience4j):**
+
+```java
+@CircuitBreaker(name = "ai-scoring", fallbackMethod = "fallbackScore")
+public ScoringDto.ScoringResponse getScore(ScoringDto.ScoringRequest request) {
+    return restTemplate.postForObject(aiScoringUrl + "/score", request,
+        ScoringDto.ScoringResponse.class);
+}
+
+// Signature must match getScore() PLUS a trailing Throwable parameter
+private ScoringDto.ScoringResponse fallbackScore(ScoringDto.ScoringRequest req, Throwable t) {
+    log.error("AI scoring circuit breaker fallback triggered. Cause: {}", t.getMessage());
+    // DTI-ratio rule: amount / (monthlyIncome * 12)
+    double ratio = req.getRequestedAmount() / (req.getMonthlyIncome() * 12);
+    if (ratio < 2)      return score(750, "LOW",    10.5, "APPROVE");
+    else if (ratio < 5) return score(620, "MEDIUM", 14.0, "APPROVE");
+    else                return score(480, "HIGH",   18.0, "REJECT");
+}
+```
+
+**Three states — how the circuit behaves:**
+
+```
+CLOSED (normal)
+  │  All calls go through to ai-scoring
+  │  Sliding window tracks last 10 calls
+  │  If ≥50% fail → trip to OPEN
+  ▼
+OPEN (tripped)
+  │  All calls SHORT-CIRCUIT immediately → fallbackScore() called instantly
+  │  No network calls, no thread blocking, no timeout wait
+  │  After 30s → transition to HALF-OPEN
+  ▼
+HALF-OPEN (probing)
+  │  Allow 3 test calls through
+  │  If they succeed → back to CLOSED
+  │  If they fail → back to OPEN for another 30s
+```
+
+**Key difference:** When the circuit is OPEN, `fallbackScore()` is called in
+microseconds — no 5-second timeout. This protects the entire loan-service from
+being held hostage by a single downstream dependency.
+
+**Two breakers, different tolerances:**
+
+| Breaker | Open state | Rationale |
+|---|---|---|
+| `ai-scoring` | 30s | Scoring is critical path — give the model time to recover |
+| `user-service` | 15s | Profile lookup is best-effort — shorter wait, null fallback is fine |
+
+**Configuration in `application.yml`:**
+
+```yaml
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai-scoring:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5        # need at least 5 before evaluating
+        failure-rate-threshold: 50        # trip if ≥50% of last 10 calls fail
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.Exception
+      user-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+```
+
+**AOP requirement:** Resilience4j's `@CircuitBreaker` works via Spring AOP proxy.
+The proxy wraps the bean method call and routes to fallback when the breaker is open.
+This requires `spring-boot-starter-aop` on the classpath — without it, the annotation
+is silently ignored and you get no protection at all.
+
+**Health visibility:** Circuit breaker state (CLOSED/OPEN/HALF-OPEN) is exposed at
+`/actuator/health` via `management.health.circuitbreakers.enabled: true`. This lets
+you see in production exactly which downstream dependency is tripped and when it
+recovered — invaluable for incident response.
+
 If the AI service is down, the loan application still works using a simpler
 rule-based fallback. The system degrades gracefully instead of failing completely.
-
-**This is the Resilience pattern.** In production you'd use Resilience4j
-CircuitBreaker to stop calling the failing service after N failures and only
-retry after a timeout window.
 
 ---
 
@@ -1149,6 +1236,35 @@ matches this authority.
 cryptographically verified (the JWT signature ensures it wasn't tampered with) without
 touching the database.
 
+### Q13: Why use Resilience4j circuit breaker instead of a simple try/catch with fallback?
+
+**A:** Both provide graceful degradation — the difference is what happens under sustained failure.
+
+**Plain try/catch:**
+```
+Request 1 → ai-scoring DOWN → wait 5s timeout → fallback ✓
+Request 2 → ai-scoring DOWN → wait 5s timeout → fallback ✓
+Request 3 → ai-scoring DOWN → wait 5s timeout → fallback ✓
+... (every request burns 5s, threads pile up)
+```
+
+**Circuit breaker (OPEN state):**
+```
+Request 1  → ai-scoring DOWN → wait 5s → fallback ✓  (counts as failure)
+Request 2  → ai-scoring DOWN → wait 5s → fallback ✓  (5/10 failures = 50%)
+Request 3  → CIRCUIT OPENS → fallback instantly ✓  (no network call)
+Request 4  → CIRCUIT OPEN  → fallback instantly ✓
+...
+After 30s → HALF-OPEN → 3 test calls → service back → CLOSED
+```
+
+The circuit breaker pattern solves three problems that try/catch does not:
+1. **Thread exhaustion:** Blocked threads waiting for timeouts can exhaust the thread pool. An open circuit returns immediately — zero threads blocked.
+2. **Thundering herd on recovery:** When a service comes back, 100 queued requests all hit it simultaneously. The HALF-OPEN state gates them to 3 probe calls first.
+3. **Observability:** Circuit state (CLOSED/OPEN/HALF-OPEN) is exposed at `/actuator/health`. A try/catch is invisible.
+
+**Interview angle:** The circuit breaker is a *stability pattern*, not a *reliability pattern*. It doesn't make the AI service more reliable — it prevents a single slow/failing dependency from taking down your whole service.
+
 ---
 
 ## Quick Reference: File to Read First by Topic
@@ -1165,6 +1281,7 @@ touching the database.
 | How the frontend manages auth | `AuthContext.tsx` + `services/api.ts` |
 | How errors are standardized | `GlobalExceptionHandler.java` + `SecurityConfig.java` (writeError) |
 | How distributed tracing works | `RequestLoggingFilter.java` |
+| How circuit breaker protects loan-service | `AiScoringClient.java` + `UserServiceClient.java` + `application.yml` (resilience4j section) |
 
 ---
 
