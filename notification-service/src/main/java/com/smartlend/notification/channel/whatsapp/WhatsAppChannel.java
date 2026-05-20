@@ -34,7 +34,7 @@ public class WhatsAppChannel implements NotificationChannel {
 
     private static final String GRAPH_API_BASE = "https://graph.facebook.com";
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final boolean enabled;
     private final String accessToken;
     private final String phoneNumberId;
@@ -45,6 +45,7 @@ public class WhatsAppChannel implements NotificationChannel {
     private final String tmplEmiDue;
 
     public WhatsAppChannel(
+            RestTemplate restTemplate,
             @Value("${notification.channels.whatsapp.enabled:false}") boolean enabled,
             @Value("${whatsapp.access-token:}") String accessToken,
             @Value("${whatsapp.phone-number-id:}") String phoneNumberId,
@@ -53,6 +54,7 @@ public class WhatsAppChannel implements NotificationChannel {
             @Value("${whatsapp.templates.loan-approved:loan_approved}") String tmplApproved,
             @Value("${whatsapp.templates.loan-rejected:loan_rejected}") String tmplRejected,
             @Value("${whatsapp.templates.emi-due:emi_due}") String tmplEmiDue) {
+        this.restTemplate  = restTemplate;
         this.enabled       = enabled;
         this.accessToken   = accessToken;
         this.phoneNumberId = phoneNumberId;

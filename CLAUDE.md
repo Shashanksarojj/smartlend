@@ -376,6 +376,12 @@ cd frontend && npm start
 # TypeScript type check (zero errors expected)
 cd frontend && npm run type-check
 
+# Run unit tests
+cd user-service && mvn test          # 15 tests — JwtUtil, AuthService
+cd loan-service && mvn test           # 6 tests  — LoanService (EMI formula, apply, decision)
+cd notification-service && mvn test   # 19 tests — Dispatcher, WhatsApp, NotificationHandler
+cd ai-scoring && python3 -m pytest tests/ -v  # 17 tests — scoring logic
+
 # Promote user to ADMIN (Neon — run in Neon SQL editor or psql)
 UPDATE users SET role='ADMIN' WHERE email='admin@example.com';
 

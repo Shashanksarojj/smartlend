@@ -320,6 +320,38 @@ smartlend/
 
 ---
 
+## Testing
+
+### Java services — JUnit 5 + Mockito
+
+Run tests for any service with Maven:
+
+```bash
+cd user-service && mvn test        # 15 tests
+cd loan-service && mvn test        # 6 tests
+cd notification-service && mvn test # 19 tests
+```
+
+| Service | Test classes | Coverage |
+|---|---|---|
+| user-service | `JwtUtilTest`, `AuthServiceTest` | Token generation/validation, register/login/createAdmin flows, error cases |
+| loan-service | `LoanServiceTest` | Loan apply, approve/reject decisions, EMI formula accuracy, not-found errors |
+| notification-service | `NotificationDispatcherTest`, `WhatsAppChannelTest`, `LoanNotificationHandlerTest` | Channel routing, phone normalisation (4 formats), template selection, all 5 event handlers |
+
+All tests are unit tests (`@ExtendWith(MockitoExtension.class)`) — no database or external service required.
+
+### AI Scoring — pytest
+
+```bash
+cd ai-scoring && python3 -m pytest tests/ -v  # 17 tests
+```
+
+Covers: DTI adjustments, tenure penalties, employment multipliers, existing-loan penalties, income-band bonuses, score clamping (300–900), risk/rate mapping, approval threshold.
+
+The scoring logic lives in `app/scoring.py` (pure Python, no FastAPI dependency) so tests run without any installed framework.
+
+---
+
 ## Postman Collection
 
 Import `SmartLend.postman_collection.json` — login/register requests automatically save the JWT token so all subsequent requests work without manual copy-paste.
