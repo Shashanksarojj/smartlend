@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -7,7 +7,8 @@ import { Layout } from '../../components/layout/Layout';
 import { Badge } from '../../components/ui/Badge';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
-import { loanApi, getErrorMessage } from '../../services/api';
+import { loanApi } from '../../services/api';
+import { useQuery } from '../../hooks/useQuery';
 import { PAYMENT_STATUS_CONFIG } from '../../constants';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import type { EmiPayment } from '../../types';
@@ -16,17 +17,11 @@ export default function EmiSchedule() {
   const { loanId } = useParams<{ loanId: string }>();
   const navigate = useNavigate();
 
-  const [schedule, setSchedule] = useState<EmiPayment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!loanId) return;
-    loanApi.emiSchedule(loanId)
-      .then(setSchedule)
-      .catch((err) => setError(getErrorMessage(err)))
-      .finally(() => setIsLoading(false));
-  }, [loanId]);
+  const { data: schedule = [], isLoading, error } = useQuery<EmiPayment[]>(
+    () => loanApi.emiSchedule(loanId!),
+    [loanId],
+    { enabled: !!loanId },
+  );
 
   const paid = schedule.filter((p) => p.status === 'PAID').length;
   const progress = schedule.length > 0 ? (paid / schedule.length) * 100 : 0;

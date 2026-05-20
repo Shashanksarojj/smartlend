@@ -1,35 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
-import { loanApi, getErrorMessage } from '../services/api';
+import { loanApi } from '../services/api';
 import type { Loan } from '../types';
+import { useQuery } from './useQuery';
+import type { QueryResult } from './useQuery';
 
-interface UseLoansResult {
-  loans: Loan[];
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => void;
-}
+type UseLoansResult = Omit<QueryResult<Loan[]>, 'data'> & { loans: Loan[] };
 
 export function useLoans(userId: string): UseLoansResult {
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchLoans = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await loanApi.myLoans(userId);
-      setLoans(data);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    fetchLoans();
-  }, [fetchLoans]);
-
-  return { loans, isLoading, error, refetch: fetchLoans };
+  const { data, ...rest } = useQuery(
+    () => loanApi.myLoans(userId),
+    [userId],
+  );
+  return { loans: data ?? [], ...rest };
 }
