@@ -75,7 +75,7 @@ export function useQuery<T>(
   }, [enabled, ...deps]);
 
   useEffect(() => {
-    run();
+    void run();
     return () => abortRef.current?.abort();
   }, [run]);
 

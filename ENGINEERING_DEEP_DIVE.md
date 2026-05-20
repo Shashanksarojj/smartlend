@@ -472,7 +472,141 @@ transparently, without modifying the caller.
 
 ---
 
-### 6. Circuit Breaker / Fallback Pattern — AiScoringClient & UserServiceClient
+### 6. Generic Hook Factory Pattern — `useQuery`
+
+**Where:** `frontend/src/hooks/useQuery.ts`
+
+Every page that loads data had the same ~15 lines of boilerplate:
+
+```typescript
+// ❌ Repeated in useLoans, useAdminLoans, EmiSchedule, and every future page
+const [loans,     setLoans    ] = useState<Loan[]>([]);
+const [isLoading, setIsLoading] = useState(true);
+const [error,     setError    ] = useState<string | null>(null);
+
+const fetch = useCallback(async () => {
+  setIsLoading(true);
+  setError(null);
+  try {
+    setLoans(await loanApi.myLoans(userId));
+  } catch (err) {
+    setError(getErrorMessage(err));
+  } finally {
+    setIsLoading(false);
+  }
+}, [userId]);
+
+useEffect(() => { fetch(); }, [fetch]);
+```
+
+The `useQuery` hook extracts this into a single reusable abstraction:
+
+```typescript
+export function useQuery<T>(
+  queryFn: () => Promise<T>,
+  deps: DependencyList,
+  { enabled = true, initialData }: QueryOptions<T> = {},
+): QueryResult<T> {
+  const [data,      setData     ] = useState<T | null>(initialData ?? null);
+  const [isLoading, setIsLoading] = useState(enabled);
+  const [error,     setError    ] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const run = useCallback(async () => {
+    if (!enabled) return;
+    abortRef.current?.abort();                    // cancel any in-flight request
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
+    setIsLoading(true); setError(null);
+    try {
+      const result = await queryFn();
+      if (!signal.aborted) setData(result);       // ignore stale responses
+    } catch (err) {
+      if (!signal.aborted) setError(getErrorMessage(err));
+    } finally {
+      if (!signal.aborted) setIsLoading(false);
+    }
+  }, [enabled, ...deps]);   // queryFn excluded — callers use stable arrow fns
+
+  useEffect(() => {
+    void run();
+    return () => abortRef.current?.abort();       // cleanup on unmount
+  }, [run]);
+
+  return { data, isLoading, error, refetch: run };
+}
+```
+
+Every hook and page reduces to one call:
+
+```typescript
+// useLoans.ts — was 35 lines, now 5
+const { data, ...rest } = useQuery(() => loanApi.myLoans(userId), [userId]);
+return { loans: data ?? [], ...rest };
+
+// EmiSchedule.tsx — was 8 lines of useEffect+useState, now 4
+const { data, isLoading, error } = useQuery(
+  () => loanApi.emiSchedule(loanId!),
+  [loanId],
+  { enabled: !!loanId },   // don't fire until loanId is available from useParams
+);
+const schedule = data ?? [];
+```
+
+#### Key design decisions
+
+**`data: T | null` not `T | undefined`**
+
+TypeScript's destructuring default (`= []`) only fires for `undefined`, not `null`.
+`useState` initialises to `null`. If you type `data: T | undefined` but the
+runtime value is `null`, you get `TS2322` at every call site. Keeping `data: T | null`
+consistently forces callers to use nullish coalescing: `data ?? []` — which handles
+both `null` and `undefined`.
+
+```typescript
+// ❌ Only fires when data is undefined — breaks with null from useState
+const { data: schedule = [] } = useQuery(...);
+
+// ✓ Fires for both null and undefined — correct
+const schedule = data ?? [];
+```
+
+**AbortController prevents stale state**
+
+Without abort, this race condition is possible:
+
+```
+t=0ms  deps change (userId A) → fetch A starts
+t=50ms deps change (userId B) → fetch B starts
+t=100ms fetch B completes  → setData(B's data) ✓
+t=200ms fetch A completes  → setData(A's data) ✗ — old data overwrites new
+```
+
+With abort, when deps change `run()` calls `abortRef.current?.abort()` first.
+The signal is checked in `.then()` — if aborted, `setData` is skipped.
+
+**`void run()` in useEffect**
+
+`useEffect` must return either `undefined` or a cleanup function. `run()` returns
+a `Promise`. Returning a Promise from `useEffect` is silently ignored by React but
+TypeScript flags it. `void run()` explicitly discards the Promise so the return
+type is `undefined`, satisfying both React and TypeScript.
+
+**`enabled` option**
+
+Prevents firing before data is ready:
+```typescript
+const { loanId } = useParams();   // string | undefined
+
+// Without enabled: runs immediately with loanId = undefined, crashes the API call
+// With enabled: waits until loanId is a string
+useQuery(() => loanApi.emiSchedule(loanId!), [loanId], { enabled: !!loanId });
+```
+
+---
+
+### 7. Circuit Breaker / Fallback Pattern — AiScoringClient & UserServiceClient
 
 **Where:** `loan-service/client/AiScoringClient.java`, `loan-service/client/UserServiceClient.java`
 
@@ -1404,6 +1538,7 @@ hoping no other requests interleaved.
 | How events are consumed | `LoanEventConsumer.java` |
 | How the frontend manages auth | `AuthContext.tsx` + `services/api.ts` |
 | How HTTP clients are built (retry, timeout, tracing) | `services/api.ts` — `createHttpClient()` factory |
+| How data fetching is standardised across pages | `hooks/useQuery.ts` — `useQuery()` generic hook |
 | How errors are standardized | `GlobalExceptionHandler.java` + `SecurityConfig.java` (writeError) |
 | How distributed tracing works | `RequestLoggingFilter.java` |
 | How circuit breaker protects loan-service | `AiScoringClient.java` + `UserServiceClient.java` + `application.yml` (resilience4j section) |
