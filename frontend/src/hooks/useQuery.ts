@@ -48,6 +48,12 @@ export function useQuery<T>(
   const [isLoading, setIsLoading] = useState(enabled);
   const [error,     setError    ] = useState<string | null>(null);
 
+  // Always hold the latest queryFn without making it a dep of run().
+  // Callers pass inline arrow functions that change identity every render —
+  // putting queryFn in deps would cause infinite re-fetch loops.
+  const queryFnRef = useRef(queryFn);
+  useEffect(() => { queryFnRef.current = queryFn; });
+
   // Prevent stale async responses from overwriting newer state when deps change mid-flight.
   const abortRef = useRef<AbortController | null>(null);
 
@@ -62,16 +68,13 @@ export function useQuery<T>(
     setError(null);
 
     try {
-      const result = await queryFn();
+      const result = await queryFnRef.current();
       if (!signal.aborted) setData(result);
     } catch (err) {
       if (!signal.aborted) setError(getErrorMessage(err));
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  // queryFn is intentionally excluded — callers should stabilise it via useCallback
-  // or inline arrow functions whose identity doesn't change on re-render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, ...deps]);
 
   useEffect(() => {
