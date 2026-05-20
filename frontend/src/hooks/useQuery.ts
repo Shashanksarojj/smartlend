@@ -3,8 +3,7 @@ import type { DependencyList } from 'react';
 import { getErrorMessage } from '../services/api';
 
 export interface QueryResult<T> {
-  // undefined (not null) so callers can use destructuring defaults: { data: loans = [] }
-  data: T | undefined;
+  data: T | null;
   isLoading: boolean;
   error: string | null;
   refetch: () => void;
@@ -26,24 +25,26 @@ export interface QueryOptions<T> {
  * @param options  { enabled, initialData }
  *
  * @example
- * const { data: loans = [], isLoading, error, refetch } = useQuery(
+ * const { data, isLoading, error, refetch } = useQuery(
  *   () => loanApi.myLoans(userId),
  *   [userId],
  * );
+ * const loans = data ?? [];
  *
  * @example with enabled guard
- * const { data: schedule = [], isLoading, error } = useQuery(
+ * const { data, isLoading, error } = useQuery(
  *   () => loanApi.emiSchedule(loanId!),
  *   [loanId],
  *   { enabled: !!loanId },
  * );
+ * const schedule = data ?? [];
  */
 export function useQuery<T>(
   queryFn: () => Promise<T>,
   deps: DependencyList,
   { enabled = true, initialData }: QueryOptions<T> = {},
 ): QueryResult<T> {
-  const [data,      setData     ] = useState<T | undefined>(initialData);
+  const [data,      setData     ] = useState<T | null>(initialData ?? null);
   const [isLoading, setIsLoading] = useState(enabled);
   const [error,     setError    ] = useState<string | null>(null);
 

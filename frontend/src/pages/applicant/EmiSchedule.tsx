@@ -17,11 +17,12 @@ export default function EmiSchedule() {
   const { loanId } = useParams<{ loanId: string }>();
   const navigate = useNavigate();
 
-  const { data: schedule = [], isLoading, error } = useQuery<EmiPayment[]>(
+  const { data, isLoading, error } = useQuery<EmiPayment[]>(
     () => loanApi.emiSchedule(loanId!),
     [loanId],
     { enabled: !!loanId },
   );
+  const schedule = data ?? [];
 
   const paid = schedule.filter((p) => p.status === 'PAID').length;
   const progress = schedule.length > 0 ? (paid / schedule.length) * 100 : 0;
