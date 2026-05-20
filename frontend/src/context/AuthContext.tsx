@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useState,
 } from 'react';
+import axios from 'axios';
 import type { AuthUser } from '../types';
 import { authApi, setInMemoryToken } from '../services/api';
 
@@ -52,14 +53,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authApi.me()
       .then((fresh) => {
         setInMemoryToken(fresh.token ?? null);
-        // Update local profile in case server-side data changed (role, income, etc.)
         saveProfile(fresh);
         setUser({ ...fresh, token: undefined });
       })
-      .catch(() => {
-        // Cookie expired or invalid — full sign-out
-        localStorage.removeItem(STORAGE_KEY);
-        setUser(null);
+      .catch((err) => {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          // Cookie is genuinely expired/invalid — sign out everywhere
+          localStorage.removeItem(STORAGE_KEY);
+          setUser(null);
+        } else {
+          // Transient failure (network, 500, timeout) — keep stored profile so
+          // the user stays logged in; _token remains null until they navigate
+          // to a page that triggers a fresh login prompt via the 401 interceptor
+          setUser(stored);
+        }
       })
       .finally(() => setIsRestoring(false));
   }, []);
