@@ -10,10 +10,19 @@ import type {
 } from '../types';
 
 // ── In-memory token ───────────────────────────────────────────
-// Never written to localStorage — survives only for the current browser session.
-// On page refresh, AuthContext restores it via GET /api/auth/me (uses the HttpOnly cookie).
-let _token: string | null = null;
-export function setInMemoryToken(token: string | null): void { _token = token; }
+// Primary store: module-level variable (never in localStorage — invisible to XSS).
+// Fallback store: sessionStorage — survives page refresh within the same tab,
+// cleared when the tab closes. This prevents a 401 race where loan API calls
+// fire before AuthContext's /me round-trip completes on a slow Railway cold start.
+const SESSION_TOKEN_KEY = 'smartlend_session_token';
+
+let _token: string | null = sessionStorage.getItem(SESSION_TOKEN_KEY);
+
+export function setInMemoryToken(token: string | null): void {
+  _token = token;
+  if (token) sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+  else        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+}
 export function getToken(): string | null { return _token; }
 
 // ── HTTP client factory ───────────────────────────────────────
@@ -105,7 +114,7 @@ function createHttpClient({
 // ── Shared 401 handler ────────────────────────────────────────
 
 function handleUnauthorized(): void {
-  setInMemoryToken(null);
+  setInMemoryToken(null);                        // clears _token + sessionStorage
   localStorage.removeItem('smartlend_user');
   if (!['/login', '/register'].includes(window.location.pathname)) {
     window.location.href = '/login';
