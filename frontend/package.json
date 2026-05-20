@@ -23,8 +23,11 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "NODE_OPTIONS=--no-deprecation react-scripts build",
     "type-check": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "proxy": "http://localhost:8082",
   "browserslist": {
