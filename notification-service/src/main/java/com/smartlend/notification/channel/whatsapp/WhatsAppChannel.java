@@ -49,7 +49,7 @@ public class WhatsAppChannel implements NotificationChannel {
             @Value("${whatsapp.access-token:}") String accessToken,
             @Value("${whatsapp.phone-number-id:}") String phoneNumberId,
             @Value("${whatsapp.api-version:v19.0}") String apiVersion,
-            @Value("${whatsapp.language-code:en}") String langCode,
+            @Value("${whatsapp.language-code:en_US}") String langCode,
             @Value("${whatsapp.templates.loan-approved:loan_approved}") String tmplApproved,
             @Value("${whatsapp.templates.loan-rejected:loan_rejected}") String tmplRejected,
             @Value("${whatsapp.templates.emi-due:emi_due}") String tmplEmiDue) {
