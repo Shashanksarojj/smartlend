@@ -520,14 +520,14 @@ export function useQuery<T>(
 
     setIsLoading(true); setError(null);
     try {
-      const result = await queryFn();
+      const result = await queryFnRef.current();  // always the latest fn, never a dep
       if (!signal.aborted) setData(result);       // ignore stale responses
     } catch (err) {
       if (!signal.aborted) setError(getErrorMessage(err));
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [enabled, ...deps]);   // queryFn excluded — callers use stable arrow fns
+  }, [enabled, ...deps]);
 
   useEffect(() => {
     void run();
@@ -603,6 +603,50 @@ const { loanId } = useParams();   // string | undefined
 // With enabled: waits until loanId is a string
 useQuery(() => loanApi.emiSchedule(loanId!), [loanId], { enabled: !!loanId });
 ```
+
+**`queryFnRef` — why `queryFn` is never in the deps array**
+
+Callers always pass an inline arrow function:
+```typescript
+useQuery(() => loanApi.myLoans(userId), [userId]);
+```
+
+Arrow functions create a new function object on every render. If `queryFn` were
+in the deps array, `run` would be recreated every render, which triggers the
+`useEffect`, which calls `run()` again — an **infinite re-fetch loop**.
+
+The naive fix is an `eslint-disable` comment:
+```typescript
+// eslint-disable-next-line react-hooks/exhaustive-deps  ← CRA build fails hard on this
+}, [enabled, ...deps]);
+```
+
+CRA's production build (`react-scripts build`) treats ESLint errors as build
+failures. If the plugin that defines `react-hooks/exhaustive-deps` isn't resolved
+in the build config, the disable comment itself becomes an error:
+```
+Definition for rule 'react-hooks/exhaustive-deps' was not found
+```
+
+The correct fix — used by React Query internally — is a **latest-ref**:
+
+```typescript
+// Sync the ref to the latest queryFn on every render (before effects fire)
+const queryFnRef = useRef(queryFn);
+useEffect(() => { queryFnRef.current = queryFn; });
+
+const run = useCallback(async () => {
+  const result = await queryFnRef.current();   // always latest, not a dep
+  ...
+}, [enabled, ...deps]);   // no comment needed — queryFn is not referenced here
+```
+
+`queryFnRef.current` is a ref, not a value, so the exhaustive-deps rule doesn't
+track it. The ref is updated synchronously before any effect fires, so `run()`
+always calls the version of `queryFn` that matches the current render.
+
+**Rule:** Never put inline functions in `useCallback`/`useEffect` deps. Store them
+in a ref and read via `.current`.
 
 ---
 
