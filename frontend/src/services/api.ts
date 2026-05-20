@@ -1,4 +1,5 @@
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
+import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import type {
   AuthUser,
   Loan,
@@ -8,60 +9,131 @@ import type {
   ApiError,
 } from '../types';
 
-const USER_BASE = process.env.REACT_APP_USER_URL ?? 'http://localhost:8081/api';
-const LOAN_BASE = process.env.REACT_APP_LOAN_URL ?? 'http://localhost:8082/api';
-
 // ── In-memory token ───────────────────────────────────────────
 // Never written to localStorage — survives only for the current browser session.
 // On page refresh, AuthContext restores it via GET /api/auth/me (uses the HttpOnly cookie).
 let _token: string | null = null;
 export function setInMemoryToken(token: string | null): void { _token = token; }
+export function getToken(): string | null { return _token; }
 
-// ── Axios instances ───────────────────────────────────────────
+// ── HTTP client factory ───────────────────────────────────────
 
-// user-service: credentials (HttpOnly cookie) sent automatically; no Authorization header needed
-const userHttp = axios.create({
-  baseURL: USER_BASE,
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
-});
+interface HttpClientOptions {
+  baseURL: string;
+  withCredentials?: boolean;
+  timeout?: number;
+  /** Max retries on network errors or 5xx. 4xx are never retried. */
+  retries?: number;
+  /** Return the Bearer token to inject, or null to skip the header. */
+  getToken?: () => string | null;
+  /** Called once when a 401 is received — should clear session and redirect. */
+  onUnauthorized?: () => void;
+}
 
-// loan-service: different domain — cookie won't reach it; use in-memory token in Authorization header
-const loanHttp = axios.create({
-  baseURL: LOAN_BASE,
-  headers: { 'Content-Type': 'application/json' },
-});
+// Extend config to track retry state across interceptor re-invocations.
+type RetryableConfig = InternalAxiosRequestConfig & { _retryCount?: number };
+
+function createHttpClient({
+  baseURL,
+  withCredentials = false,
+  timeout = 10_000,
+  retries = 2,
+  getToken: tokenFn,
+  onUnauthorized,
+}: HttpClientOptions): AxiosInstance {
+  const instance = axios.create({
+    baseURL,
+    withCredentials,
+    timeout,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  // Request: inject Bearer token + add correlation ID for distributed tracing
+  instance.interceptors.request.use((config) => {
+    const token = tokenFn?.();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    config.headers['X-Request-Id'] = crypto.randomUUID();
+    return config;
+  });
+
+  // Dev logging — stripped in production builds by tree-shaking
+  if (process.env.NODE_ENV === 'development') {
+    instance.interceptors.request.use((config) => {
+      console.debug(`→ ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+      return config;
+    });
+    instance.interceptors.response.use((res) => {
+      console.debug(`← ${res.status} ${res.config.url}`);
+      return res;
+    });
+  }
+
+  // Response: retry on transient failures; hard-stop on 4xx
+  instance.interceptors.response.use(
+    (res) => res,
+    async (err: unknown) => {
+      if (!axios.isAxiosError(err)) return Promise.reject(err);
+
+      const config = err.config as RetryableConfig | undefined;
+      const status = err.response?.status;
+
+      // 401 → sign out immediately, never retry
+      if (status === 401) {
+        onUnauthorized?.();
+        return Promise.reject(err);
+      }
+
+      // Any other 4xx (400, 403, 404, 422…) → client error, surface immediately
+      const isClientError = status !== undefined && status >= 400 && status < 500;
+      if (isClientError) return Promise.reject(err);
+
+      // Network error or 5xx → retry with exponential backoff
+      const retriesUsed = config?._retryCount ?? 0;
+      if (config && retriesUsed < retries) {
+        (config as RetryableConfig)._retryCount = retriesUsed + 1;
+        await new Promise((r) => setTimeout(r, 2 ** retriesUsed * 300)); // 300ms, 600ms
+        return instance(config);
+      }
+
+      return Promise.reject(err);
+    }
+  );
+
+  return instance;
+}
 
 // ── Shared 401 handler ────────────────────────────────────────
 
-function handleUnauthorized() {
+function handleUnauthorized(): void {
   setInMemoryToken(null);
   localStorage.removeItem('smartlend_user');
-  const isAuthPage = ['/login', '/register'].includes(window.location.pathname);
-  if (!isAuthPage) window.location.href = '/login';
+  if (!['/login', '/register'].includes(window.location.pathname)) {
+    window.location.href = '/login';
+  }
 }
 
-// userHttp: 401 → clear session and redirect
-userHttp.interceptors.response.use(
-  (res) => res,
-  (err: AxiosError) => {
-    if (err.response?.status === 401) handleUnauthorized();
-    return Promise.reject(err);
-  }
-);
+// ── Axios instances ───────────────────────────────────────────
 
-// loanHttp: inject Bearer token from memory; 401 → clear session and redirect
-loanHttp.interceptors.request.use((config) => {
-  if (_token) config.headers.Authorization = `Bearer ${_token}`;
-  return config;
+const USER_BASE = process.env.REACT_APP_USER_URL ?? 'http://localhost:8081/api';
+const LOAN_BASE = process.env.REACT_APP_LOAN_URL ?? 'http://localhost:8082/api';
+const AI_BASE   = process.env.REACT_APP_AI_URL   ?? 'http://localhost:8000';
+
+// user-service: auth via HttpOnly cookie (withCredentials); no Bearer header needed
+const userHttp = createHttpClient({
+  baseURL: USER_BASE,
+  withCredentials: true,
+  onUnauthorized: handleUnauthorized,
 });
-loanHttp.interceptors.response.use(
-  (res) => res,
-  (err: AxiosError) => {
-    if (err.response?.status === 401) handleUnauthorized();
-    return Promise.reject(err);
-  }
-);
+
+// loan-service: different domain — cookie won't reach it; Bearer from in-memory token
+const loanHttp = createHttpClient({
+  baseURL: LOAN_BASE,
+  getToken,
+  onUnauthorized: handleUnauthorized,
+});
+
+// ai-scoring: public endpoint, no auth
+const aiHttp = createHttpClient({ baseURL: AI_BASE });
 
 // ── Error helper ──────────────────────────────────────────────
 
@@ -69,7 +141,7 @@ export function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as ApiError | undefined;
     if (data?.message) return data.message;
-    if (data?.error) return data.error;
+    if (data?.error)   return data.error;
     return err.message;
   }
   return err instanceof Error ? err.message : 'Something went wrong';
@@ -108,9 +180,6 @@ export const authApi = {
 };
 
 // ── AI Scoring preview ────────────────────────────────────────
-
-const AI_BASE = process.env.REACT_APP_AI_URL ?? 'http://localhost:8000';
-const aiHttp = axios.create({ baseURL: AI_BASE, headers: { 'Content-Type': 'application/json' } });
 
 export interface ScorePreviewRequest {
   monthly_income: number;
