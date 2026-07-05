@@ -453,3 +453,195 @@ railway logs --service ai-scoring-smartlend
 | Email templates | `handler/LoanNotificationHandler.java` — HTML bodies for USER_REGISTERED / LOAN_APPLIED / APPROVED / REJECTED / EMI_DUE |
 | Adding a new channel | Implement `NotificationChannel`, annotate `@Component` — dispatcher auto-discovers it |
 | Adding a new event | 1. Publish from service with `type` field  2. Add binding in `notification-service/config/RabbitMQConfig.java`  3. Add handler method in `LoanNotificationHandler`  4. Add case in `LoanEventConsumer` |
+| S3 document upload | `config/S3Config.java`, `service/DocumentStorageService.java`, `controller/LoanDocumentController.java` |
+| DynamoDB audit log | `config/DynamoDbConfig.java`, `audit/LoanAuditService.java`, `audit/LoanAuditEvent.java`, `controller/LoanAuditController.java` |
+
+---
+
+## LocalStack AWS Features (added 2026-07-05/06)
+
+LocalStack runs at `http://localhost:4566` and emulates all AWS services locally.
+AWS region is permanently **ap-south-1 (Mumbai)** for all SmartLend resources.
+
+### AWS Config (flat namespace — shared by S3 + DynamoDB)
+
+`loan-service/src/main/resources/application.yml`:
+```yaml
+aws:
+  region: ${AWS_REGION:ap-south-1}
+  endpoint: ${AWS_ENDPOINT:http://localhost:4566}   # blank = real AWS in prod
+  access-key: ${AWS_ACCESS_KEY_ID:test}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+  s3:
+    bucket-name: ${AWS_S3_BUCKET:smartlend-documents}
+    presigned-url-expiry-minutes: ${AWS_S3_PRESIGNED_EXPIRY:15}
+  dynamodb:
+    table-name: ${AWS_DYNAMODB_AUDIT_TABLE:loan-audit-log}
+```
+
+Both `S3Config` and `DynamoDbConfig` read `${aws.endpoint}`, `${aws.region}`, `${aws.access-key}`, `${aws.secret-key}`.
+Blank `endpoint` = real AWS. Non-blank = LocalStack override.
+
+### Feature 1 — S3 Document Upload
+
+**Purpose:** KYC document upload (PDF/JPEG/PNG ≤10MB) stored in S3 with presigned download URLs.
+
+**New files in `loan-service/src/main/java/com/smartlend/loan/`:**
+
+| File | Role |
+|------|------|
+| `config/S3Config.java` | S3Client + S3Presigner beans; `forcePathStyle(true)` required for LocalStack; `ensureBucketExists()` on startup |
+| `model/DocumentType.java` | Enum: INCOME_PROOF, IDENTITY_PROOF, ADDRESS_PROOF, BANK_STATEMENT, EMPLOYMENT_LETTER, OTHER |
+| `model/LoanDocument.java` | JPA entity: `loan_documents` table; fields: id (UUID), loanId, userId, docType, s3Key, originalFilename, contentType, fileSize, uploadedAt |
+| `repository/LoanDocumentRepository.java` | `findByLoanId`, `findByLoanIdAndUserId` |
+| `dto/DocumentDto.java` | `UploadResponse`, `DocumentInfo`, `PresignedUrlResponse` |
+| `service/DocumentStorageService.java` | Upload (validates type+size, streams to S3), list (admin=all / applicant=own), presigned URL generation (15-min expiry) |
+| `controller/LoanDocumentController.java` | REST endpoints (see below) |
+
+**Endpoints** (all under `/api/loans`):
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/{loanId}/documents` | Bearer + X-User-Id | Multipart upload; `docType` query param |
+| GET | `/{loanId}/documents` | Bearer + X-User-Id | List document metadata |
+| GET | `/{loanId}/documents/{documentId}/url` | Bearer + X-User-Id | 15-min presigned S3 URL |
+
+**S3 key pattern:** `{loanId}/{docType}/{UUID}-{originalFilename}`
+
+**Critical gotcha:** `forcePathStyle(true)` on `S3Client` is mandatory for LocalStack. Without it, the SDK generates `bucket.localhost` virtual-hosted URLs that LocalStack cannot resolve.
+
+**LocalStack setup:**
+```bash
+# Create bucket (if not auto-created by S3Config startup check)
+awslocal s3 mb s3://smartlend-documents --region ap-south-1
+
+# List uploaded documents
+awslocal s3 ls s3://smartlend-documents/ --recursive --region ap-south-1
+```
+
+### Feature 2 — DynamoDB Immutable Audit Log
+
+**Purpose:** Compliance-grade append-only audit trail for every loan state transition and document upload. Stored in DynamoDB (never in PostgreSQL) for unbounded growth without vacuum/reindex overhead.
+
+**New files in `loan-service/src/main/java/com/smartlend/loan/`:**
+
+| File | Role |
+|------|------|
+| `config/DynamoDbConfig.java` | DynamoDbClient bean with LocalStack override; `ensureTableExists()` on startup (describeTable → if ResourceNotFoundException → createTable) |
+| `audit/LoanAuditEvent.java` | Immutable `@Value @Builder` record — loanId, sk, eventId, eventType, fromStatus, toStatus, actorId, actorRole, metadata (JSON string), timestamp |
+| `audit/LoanAuditService.java` | `record(event)` → putItem with `attribute_not_exists(sk)` condition; `getHistory(loanId)` → Query by PK; `buildEvent(...)` → constructs SK |
+| `controller/LoanAuditController.java` | `GET /api/loans/admin/{loanId}/audit` — admin-only, returns chronological history |
+
+**DynamoDB table schema:**
+```
+Table: loan-audit-log
+  PK:  loanId  (String)  — partition: all events for one loan live together
+  SK:  sk      (String)  — format: {ISO-8601-timestamp}#{UUID}
+                           ISO prefix gives chronological lexicographic sort
+Billing: PAY_PER_REQUEST
+```
+
+**Events recorded:**
+
+| Trigger | eventType | fromStatus | toStatus | metadata |
+|---------|-----------|-----------|---------|---------|
+| Loan applied | `LOAN_APPLIED` | null | PENDING | amount, tenureMonths, creditScore, riskLabel |
+| Admin approves | `LOAN_APPROVED` | PENDING | APPROVED | interestRate, emiAmount, totalPayable, adminNote |
+| Admin rejects | `LOAN_REJECTED` | PENDING | REJECTED | adminNote |
+| Document uploaded | `DOCUMENT_UPLOADED` | null | null | documentId, docType, filename, fileSize |
+
+**Key design decisions:**
+- `attribute_not_exists(sk)` condition → duplicate write on retry is rejected silently (idempotent)
+- Audit failures never propagate → catch block logs error but does NOT rethrow; a DynamoDB outage cannot block a loan approval
+- Chronological sort is free — ISO-8601 strings sort lexicographically, so `scanIndexForward(true)` returns events in time order with no application-side sorting
+
+**LocalStack setup:**
+```bash
+# Create table (if not auto-created by DynamoDbConfig startup)
+awslocal dynamodb create-table \
+  --table-name loan-audit-log \
+  --attribute-definitions AttributeName=loanId,AttributeType=S AttributeName=sk,AttributeType=S \
+  --key-schema AttributeName=loanId,KeyType=HASH AttributeName=sk,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST \
+  --region ap-south-1
+
+# Query audit history for a loan
+awslocal dynamodb query \
+  --table-name loan-audit-log \
+  --key-condition-expression "loanId = :pk" \
+  --expression-attribute-values '{":pk":{"S":"your-loan-id"}}' \
+  --region ap-south-1
+```
+
+**Production path:** In real AWS, add DynamoDB Streams → Lambda → S3 → Athena for a regulatory compliance data lake with zero changes to this service.
+
+**Test coverage:** `LoanServiceTest` mocks `LoanAuditService` (`@Mock`); all 6 tests pass. Audit calls fire-and-forget, so mocking is trivial.
+
+---
+
+## LocalStack Feature Roadmap
+
+Features to add next (in suggested order):
+
+### Next up — SQS + Dead Letter Queue (replace RabbitMQ for loan events)
+
+**Why:** SQS natively handles visibility timeout, automatic DLQ routing after N failures, and CloudWatch metrics — no broker management. Good AWS resume talking point.
+
+**Plan:**
+1. Add `sqs` to pom.xml
+2. Add `SqsConfig.java` — creates `loan-events` queue + `loan-events-dlq` with `maxReceiveCount=3`
+3. Replace `rabbitTemplate.convertAndSend(...)` in `LoanService.java` with `SqsClient.sendMessage(...)`
+4. Add `SqsConsumerService.java` in notification-service (poll or Spring Cloud AWS `@SqsListener`)
+5. Keep RabbitMQ config but add `AWS_SQS_ENABLED` toggle so you can demo both
+
+**LocalStack CLI:**
+```bash
+awslocal sqs create-queue --queue-name loan-events-dlq --region ap-south-1
+awslocal sqs create-queue \
+  --queue-name loan-events \
+  --attributes '{"RedrivePolicy":"{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-1:000000000000:loan-events-dlq\",\"maxReceiveCount\":\"3\"}"}' \
+  --region ap-south-1
+```
+
+### AWS SES — Transactional Email (replace SendGrid)
+
+**Why:** SES costs $0.10/1000 emails vs SendGrid free tier limits. LocalStack emulates SES sending + can verify sandbox domains locally.
+
+**Plan:**
+1. Add `ses` to pom.xml
+2. Create `SesEmailChannel.java` implementing `NotificationChannel` — replaces `SendGridEmailChannel`
+3. HTML templates are already in `LoanNotificationHandler.java` — reuse them
+4. Toggle: `NOTIFICATION_SES_ENABLED=true` → SES active; `NOTIFICATION_EMAIL_ENABLED=true` → SendGrid
+
+### Secrets Manager — Secure Credential Rotation
+
+**Why:** Currently DB passwords + API keys are plain env vars. Secrets Manager enables rotation without redeployment and is a standard enterprise pattern.
+
+**Plan:**
+1. Add `secretsmanager` to pom.xml
+2. `SecretsConfig.java` — on startup, loads secrets from `smartlend/db-credentials` and `smartlend/api-keys`
+3. Override DataSource password from Secrets Manager value
+4. In production: enable auto-rotation (30-day) for DB creds
+
+### Step Functions — Loan Lifecycle Orchestration
+
+**Why:** Replaces the imperative `if (APPROVED) ... else ...` block in `LoanService.processAdminDecision()` with a state machine that has explicit retries, compensating transactions, and a visible audit trail in the AWS console.
+
+**States:** PENDING → [admin decision] → APPROVED (with EMI generation + notification) / REJECTED (with notification) → ACTIVE → CLOSED
+
+**Plan:**
+1. Add `sfn` to pom.xml
+2. Define state machine JSON in `loan-service/src/main/resources/loan-lifecycle-sfn.json`
+3. `StepFunctionsConfig.java` — creates state machine via LocalStack
+4. `LoanService.processAdminDecision()` → starts execution instead of direct business logic
+5. Lambda functions per state (or Activity tasks polling from loan-service)
+
+### Bedrock — AI Credit Scoring (upgrade ai-scoring service)
+
+**Why:** Replace the rule-based scoring model in `ai-scoring/app/main.py` with a real foundation model call (Titan, Claude Haiku). LocalStack Pro emulates Bedrock endpoints.
+
+**Plan:**
+1. Add Bedrock SDK to `ai-scoring` requirements
+2. `POST /score` → format loan data as a prompt → call `bedrock-runtime:InvokeModel` with Titan or Claude
+3. Parse structured JSON response back to `ScoringResponse` format
+4. Add `AI_PROVIDER` env var toggle: `rule-based` (current) vs `bedrock`
