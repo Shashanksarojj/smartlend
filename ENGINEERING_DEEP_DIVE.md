@@ -1567,6 +1567,41 @@ user action appear instantly, across services.
 Without this, debugging a failed loan application means grepping by timestamp and
 hoping no other requests interleaved.
 
+### Q16: Why does `npm run build` print a deprecation warning on Node 22+?
+
+**A:** The warning is:
+```
+[DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+```
+
+It comes from **webpack inside `react-scripts`**, not your code. CRA 5 uses webpack 5
+which calls `fs.F_OK` — an API deprecated in Node 22+ and removed in future versions.
+There is no user-land fix; it's an unfixed issue in CRA's dependency tree.
+
+**Three ways to deal with it:**
+
+1. **Suppress it** (applied here) — prefix the build script with `NODE_OPTIONS=--no-deprecation`:
+   ```json
+   "build": "NODE_OPTIONS=--no-deprecation react-scripts build"
+   ```
+   This silences all deprecation warnings for the build process only. Picked up by
+   Vercel automatically — no extra config needed.
+
+2. **Use Node 20 LTS** — the deprecation doesn't exist on Node 20. `.nvmrc` with `20`
+   pins it for anyone who runs `nvm use` in the `frontend/` directory:
+   ```
+   20
+   ```
+
+3. **Migrate off CRA** — CRA is in maintenance mode (no new releases since 2022). Vite
+   is the modern replacement: faster dev server, faster builds, actively maintained,
+   no webpack. For a new project, choose Vite. For an existing CRA project, the migration
+   is non-trivial (config changes, env var prefix `VITE_` instead of `REACT_APP_`).
+
+**Why not just ignore it?** Warnings become errors in future Node versions. Node 24
+demotes it to a warning today — a later release may throw. The `NODE_OPTIONS` flag
+is a low-risk bridge until the ecosystem catches up or CRA is replaced.
+
 ---
 
 ## Quick Reference: File to Read First by Topic

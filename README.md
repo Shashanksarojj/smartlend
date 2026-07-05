@@ -46,6 +46,8 @@ A production-grade full-stack fintech application built with microservices, AI c
 | AI Service | Python 3.11, FastAPI, NumPy |
 | Database | PostgreSQL 15 via Neon (one DB per service), Redis via Upstash |
 | Messaging | RabbitMQ via CloudAMQP (TopicExchange, async events) |
+| Cloud Storage | AWS S3 (LocalStack in dev, region ap-south-1) — KYC document storage with presigned URLs |
+| Audit Store | AWS DynamoDB (LocalStack in dev) — immutable append-only loan audit log |
 | Email | SendGrid (`sendgrid-java:4.10.2`) — HTML transactional email |
 | DevOps | Docker, Docker Compose |
 | Deployment | Railway (backend), Vercel (frontend) |
@@ -60,6 +62,8 @@ A production-grade full-stack fintech application built with microservices, AI c
 - **HttpOnly Cookie Auth** — JWT served as `HttpOnly; Secure; SameSite` cookie (not localStorage); immune to XSS token theft. In-memory token for cross-domain loan-service calls. Session restored on page refresh via `GET /api/auth/me` using the persisted cookie.
 - **JWT Role-based Auth** — APPLICANT and ADMIN roles; same portal, different views; admin endpoints protected at filter chain level
 - **EMI Engine** — Standard reducing-balance amortization on loan approval; full installment schedule with principal, interest, and balance per month
+- **KYC Document Upload (S3)** — Applicants upload income/identity/address proofs (PDF/JPEG/PNG ≤10MB) stored in AWS S3; downloads served via 15-minute presigned URLs so the service never proxies file bytes
+- **Immutable Audit Trail (DynamoDB)** — Every loan state transition (applied, approved, rejected) and document upload is recorded append-only in DynamoDB with actor, timestamp, and metadata; conditional writes make retries idempotent; audit failures never block the loan flow
 - **Transactional Email at Every Step** — Emails sent on registration (welcome), loan application received (with AI credit score), approval, and rejection via SendGrid HTML templates
 - **Async Notifications** — RabbitMQ TopicExchange decouples all events from delivery; notification-service uses an extensible `NotificationChannel` interface — SendGrid email and WhatsApp (Meta Cloud API) are live, SMS (Twilio) and Push (Firebase) are stubbed
 - **Resilience4j Circuit Breaker** — `@CircuitBreaker` on `AiScoringClient` and `UserServiceClient`; ai-scoring trips after 50% failure rate (30s open state, DTI-ratio fallback scoring); user-service trips at 50% (15s open, returns null gracefully); health state visible at `/actuator/health`
@@ -76,7 +80,10 @@ A production-grade full-stack fintech application built with microservices, AI c
 ### Prerequisites
 - Docker & Docker Compose
 - Node.js 18+
+- [LocalStack](https://localstack.cloud) running at `localhost:4566` (emulates S3 + DynamoDB locally; region `ap-south-1`)
 - Accounts on: [Neon](https://neon.tech) (PostgreSQL), [CloudAMQP](https://cloudamqp.com) (RabbitMQ), [Upstash](https://upstash.com) (Redis), [SendGrid](https://sendgrid.com) (email)
+
+> The S3 bucket (`smartlend-documents`) and DynamoDB table (`loan-audit-log`) are auto-created by loan-service on startup — no manual `awslocal` setup needed.
 
 ### 1. Configure environment variables
 
@@ -174,6 +181,10 @@ https://ai-scoring-smartlend.up.railway.app/docs
 | GET | `/api/loans/admin/all` | Bearer (ADMIN) | All loans in the system |
 | PUT | `/api/loans/admin/{loanId}/decision` | Bearer (ADMIN) | Approve or reject; triggers approval/rejection email |
 | GET | `/api/loans/admin/summary` | Bearer (ADMIN) | Portfolio summary stats |
+| POST | `/api/loans/{loanId}/documents` | `X-User-Id` | Upload KYC document (multipart, `docType` param) to S3 |
+| GET | `/api/loans/{loanId}/documents` | `X-User-Id` | List uploaded documents (admin sees all, applicant sees own) |
+| GET | `/api/loans/{loanId}/documents/{documentId}/url` | `X-User-Id` | 15-min presigned S3 download URL |
+| GET | `/api/loans/admin/{loanId}/audit` | Bearer (ADMIN) | Full chronological audit trail from DynamoDB |
 
 ### AI Scoring — `http://localhost:8000`
 
