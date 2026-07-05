@@ -27,6 +27,13 @@ spring:
     ssl:
       enabled: ${RABBITMQ_SSL:false}
 
+  # Allow KYC documents up to 10 MB per file
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 15MB
+
 jwt:
   secret: ${JWT_SECRET:smartlend-super-secret-jwt-key-change-in-prod}
 
@@ -66,6 +73,18 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         record-exceptions:
           - java.lang.Exception
+
+# ── AWS / LocalStack S3 ────────────────────────────────────────
+# Local dev: endpoint → LocalStack, credentials can be anything ("test" is LocalStack convention).
+# Production (Railway): set AWS_S3_ENDPOINT="" and supply real IAM creds + bucket name.
+aws:
+  s3:
+    endpoint: ${AWS_S3_ENDPOINT:http://localhost:4566}
+    region: ${AWS_REGION:ap-south-1}
+    bucket-name: ${AWS_S3_BUCKET:smartlend-documents}
+    access-key: ${AWS_ACCESS_KEY_ID:test}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+    presigned-url-expiry-minutes: ${AWS_S3_PRESIGNED_EXPIRY:15}
 
 management:
   endpoints:

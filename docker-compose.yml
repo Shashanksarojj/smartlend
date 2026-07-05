@@ -41,6 +41,12 @@ services:
       AI_SCORING_URL: http://ai-scoring:8000
       USER_SERVICE_URL: http://user-service:8081
       JWT_SECRET: ${JWT_SECRET:-smartlend-super-secret-jwt-key-change-in-prod}
+      # S3 / LocalStack — override AWS_S3_ENDPOINT="" in production to hit real AWS
+      AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-http://localhost:4566}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-smartlend-documents}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     depends_on:
       - ai-scoring
       - user-service
