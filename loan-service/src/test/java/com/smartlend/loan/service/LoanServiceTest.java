@@ -1,5 +1,6 @@
 package com.smartlend.loan.service;
 
+import com.smartlend.loan.audit.LoanAuditService;
 import com.smartlend.loan.client.AiScoringClient;
 import com.smartlend.loan.client.UserServiceClient;
 import com.smartlend.loan.dto.LoanDto;
@@ -34,6 +35,7 @@ class LoanServiceTest {
     @Mock private AiScoringClient aiScoringClient;
     @Mock private UserServiceClient userServiceClient;
     @Mock private RabbitTemplate rabbitTemplate;
+    @Mock private LoanAuditService auditService;
 
     @InjectMocks private LoanService loanService;
 

@@ -1,5 +1,6 @@
 package com.smartlend.loan.service;
 
+import com.smartlend.loan.audit.LoanAuditService;
 import com.smartlend.loan.dto.DocumentDto;
 import com.smartlend.loan.model.DocumentType;
 import com.smartlend.loan.model.Loan;
@@ -21,6 +22,7 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,6 +38,7 @@ public class DocumentStorageService {
     private final S3Presigner s3Presigner;
     private final LoanDocumentRepository documentRepository;
     private final LoanRepository loanRepository;
+    private final LoanAuditService auditService;
 
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
@@ -81,6 +84,15 @@ public class DocumentStorageService {
                         .contentType(file.getContentType())
                         .fileSize(file.getSize())
                         .build());
+
+        // Audit: document uploaded — no status transition, but recorded for compliance trail
+        auditService.record(auditService.buildEvent(
+                loanId, "DOCUMENT_UPLOADED",
+                null, null,
+                userId, "APPLICANT",
+                Map.of("documentId", saved.getId(), "docType", docType.name(),
+                       "filename", file.getOriginalFilename() != null ? file.getOriginalFilename() : "",
+                       "fileSize", file.getSize())));
 
         return DocumentDto.UploadResponse.builder()
                 .documentId(saved.getId())

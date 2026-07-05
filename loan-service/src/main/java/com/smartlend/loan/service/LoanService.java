@@ -1,5 +1,6 @@
 package com.smartlend.loan.service;
 
+import com.smartlend.loan.audit.LoanAuditService;
 import com.smartlend.loan.client.AiScoringClient;
 import com.smartlend.loan.client.UserServiceClient;
 import com.smartlend.loan.dto.LoanDto;
@@ -32,6 +33,7 @@ public class LoanService {
     private final AiScoringClient aiScoringClient;
     private final UserServiceClient userServiceClient;
     private final RabbitTemplate rabbitTemplate;
+    private final LoanAuditService auditService;
 
     @Value("${rabbitmq.exchange}")
     private String exchange;
@@ -86,6 +88,16 @@ public class LoanService {
 
         loan = loanRepository.save(loan);
 
+        // Audit: record the initial application event (no fromStatus — loan is new)
+        auditService.record(auditService.buildEvent(
+                loan.getId(), "LOAN_APPLIED",
+                null, Loan.LoanStatus.PENDING.name(),
+                userId, "APPLICANT",
+                Map.of("amount", loan.getPrincipalAmount(),
+                       "tenureMonths", loan.getTenureMonths(),
+                       "creditScore", loan.getCreditScore(),
+                       "riskLabel", loan.getRiskLabel() != null ? loan.getRiskLabel() : "UNKNOWN")));
+
         UserServiceClient.UserProfile profile = userServiceClient.getProfile(userId);
         String userEmail = profile != null ? profile.getEmail() : "";
         String userName  = profile != null ? profile.getFullName() : "Valued Customer";
@@ -132,6 +144,15 @@ public class LoanService {
             log.info("EMI schedule generated — loanId={} emi={} totalPayable={}",
                     loanId, loan.getEmiAmount(), loan.getTotalPayable());
 
+            // Audit: PENDING → APPROVED by admin
+            auditService.record(auditService.buildEvent(
+                    loanId, "LOAN_APPROVED",
+                    Loan.LoanStatus.PENDING.name(), Loan.LoanStatus.APPROVED.name(),
+                    "admin", "ADMIN",
+                    Map.of("interestRate", rate, "emiAmount", loan.getEmiAmount(),
+                           "totalPayable", loan.getTotalPayable(),
+                           "adminNote", decision.getAdminNote() != null ? decision.getAdminNote() : "")));
+
             rabbitTemplate.convertAndSend(exchange, approvedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
                        "userName", userName, "userPhone", userPhone, "amount", loan.getPrincipalAmount(),
@@ -139,6 +160,13 @@ public class LoanService {
                        "emiAmount", emi, "type", "APPROVED"));
             log.debug("Published loan.approved event — loanId={}", loanId);
         } else {
+            // Audit: PENDING → REJECTED by admin
+            auditService.record(auditService.buildEvent(
+                    loanId, "LOAN_REJECTED",
+                    Loan.LoanStatus.PENDING.name(), Loan.LoanStatus.REJECTED.name(),
+                    "admin", "ADMIN",
+                    Map.of("adminNote", decision.getAdminNote() != null ? decision.getAdminNote() : "")));
+
             rabbitTemplate.convertAndSend(exchange, rejectedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
                        "userName", userName, "userPhone", userPhone, "type", "REJECTED"));

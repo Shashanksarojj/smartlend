@@ -16,16 +16,16 @@ import java.net.URI;
 @Slf4j
 public class S3Config {
 
-    @Value("${aws.s3.endpoint:}")
+    @Value("${aws.endpoint:}")
     private String endpoint;
 
-    @Value("${aws.s3.region:us-east-1}")
+    @Value("${aws.region:ap-south-1}")
     private String region;
 
-    @Value("${aws.s3.access-key:test}")
+    @Value("${aws.access-key:test}")
     private String accessKey;
 
-    @Value("${aws.s3.secret-key:test}")
+    @Value("${aws.secret-key:test}")
     private String secretKey;
 
     @Value("${aws.s3.bucket-name:smartlend-documents}")
