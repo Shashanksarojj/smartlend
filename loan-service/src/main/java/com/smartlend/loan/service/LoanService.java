@@ -9,12 +9,17 @@ import com.smartlend.loan.model.EmiPayment;
 import com.smartlend.loan.model.Loan;
 import com.smartlend.loan.repository.EmiPaymentRepository;
 import com.smartlend.loan.repository.LoanRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -46,6 +51,15 @@ public class LoanService {
 
     @Value("${rabbitmq.routing-key.loan-applied}")
     private String appliedKey;
+
+    @Autowired(required = false)
+    private SqsClient sqsClient;
+
+    @Value("${aws.sqs.queue-url:}")
+    private String sqsQueueUrl;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     public List<LoanDto.LoanResponse> getMyLoans(String userId) {
         log.debug("Fetching loans for user {}", userId);
@@ -103,7 +117,7 @@ public class LoanService {
         String userName  = profile != null ? profile.getFullName() : "Valued Customer";
         String userPhone = profile != null && profile.getPhone() != null ? profile.getPhone() : "";
 
-        rabbitTemplate.convertAndSend(exchange, appliedKey,
+        publishEvent(appliedKey,
             Map.of("loanId", loan.getId(), "userId", userId, "userEmail", userEmail,
                    "userName", userName, "userPhone", userPhone,
                    "amount", loan.getPrincipalAmount(), "tenureMonths", loan.getTenureMonths(),
@@ -153,7 +167,7 @@ public class LoanService {
                            "totalPayable", loan.getTotalPayable(),
                            "adminNote", decision.getAdminNote() != null ? decision.getAdminNote() : "")));
 
-            rabbitTemplate.convertAndSend(exchange, approvedKey,
+            publishEvent(approvedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
                        "userName", userName, "userPhone", userPhone, "amount", loan.getPrincipalAmount(),
                        "tenureMonths", loan.getTenureMonths(), "interestRate", rate,
@@ -167,7 +181,7 @@ public class LoanService {
                     "admin", "ADMIN",
                     Map.of("adminNote", decision.getAdminNote() != null ? decision.getAdminNote() : "")));
 
-            rabbitTemplate.convertAndSend(exchange, rejectedKey,
+            publishEvent(rejectedKey,
                 Map.of("loanId", loanId, "userId", loan.getUserId(), "userEmail", userEmail,
                        "userName", userName, "userPhone", userPhone, "type", "REJECTED"));
             log.debug("Published loan.rejected event — loanId={}", loanId);
@@ -235,6 +249,22 @@ public class LoanService {
             schedule.add(payment);
         }
         emiPaymentRepository.saveAll(schedule);
+    }
+
+    private void publishEvent(String routingKey, Map<String, Object> payload) {
+        if (sqsClient != null) {
+            try {
+                String body = objectMapper.writeValueAsString(payload);
+                sqsClient.sendMessage(SendMessageRequest.builder()
+                        .queueUrl(sqsQueueUrl)
+                        .messageBody(body)
+                        .build());
+            } catch (JsonProcessingException e) {
+                log.error("Failed to serialise SQS event payload: {}", e.getMessage());
+            }
+        } else {
+            rabbitTemplate.convertAndSend(exchange, routingKey, payload);
+        }
     }
 
     private LoanDto.LoanResponse mapToResponse(Loan loan) {
