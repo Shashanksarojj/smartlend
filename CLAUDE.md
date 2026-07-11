@@ -581,29 +581,60 @@ awslocal dynamodb query \
 
 ## LocalStack Feature Roadmap
 
-Features to add next (in suggested order):
+### Feature 3 — SQS + Dead Letter Queue (added 2026-07-11)
 
-### Next up — SQS + Dead Letter Queue (replace RabbitMQ for loan events)
+**Purpose:** Replace RabbitMQ for loan events with AWS SQS + DLQ. `AWS_SQS_ENABLED` toggle lets both brokers coexist for demos. User-service stays on RabbitMQ.
 
-**Why:** SQS natively handles visibility timeout, automatic DLQ routing after N failures, and CloudWatch metrics — no broker management. Good AWS resume talking point.
+**New/changed files:**
 
-**Plan:**
-1. Add `sqs` to pom.xml
-2. Add `SqsConfig.java` — creates `loan-events` queue + `loan-events-dlq` with `maxReceiveCount=3`
-3. Replace `rabbitTemplate.convertAndSend(...)` in `LoanService.java` with `SqsClient.sendMessage(...)`
-4. Add `SqsConsumerService.java` in notification-service (poll or Spring Cloud AWS `@SqsListener`)
-5. Keep RabbitMQ config but add `AWS_SQS_ENABLED` toggle so you can demo both
+| Service | File | Role |
+|---------|------|------|
+| loan-service | `config/SqsConfig.java` | `SqsClient` bean + `loan-events` + `loan-events-dlq` bootstrap on startup (`@ConditionalOnProperty`) |
+| loan-service | `service/LoanService.java` | Private `publishEvent()` helper — SQS branch when `sqsClient != null`, RabbitMQ fallback |
+| notification-service | `config/SqsConfig.java` | Identical `SqsClient` bean + idempotent queue bootstrap |
+| notification-service | `consumer/SqsConsumerService.java` | `@SqsListener` routing to `LoanNotificationHandler` (`@ConditionalOnProperty`) |
+
+**Toggle behaviour:**
+- `AWS_SQS_ENABLED=false` (default): unchanged — loan-service publishes to RabbitMQ; `@RabbitListener` handles all events
+- `AWS_SQS_ENABLED=true`: loan-service publishes to SQS; `@SqsListener` handles loan events; `@RabbitListener` stays active for `user.registered` from user-service
+
+**Key gotchas:**
+- Spring Cloud AWS BOM artifact ID is `spring-cloud-aws-dependencies` (not `spring-cloud-aws-bom` — that doesn't exist on Maven Central); version `3.1.1`
+- `CreateQueueRequest.attributes()` takes `Map<QueueAttributeName, String>` — use `QueueAttributeName.REDRIVE_POLICY`, not a plain string key
+- `spring.cloud.aws.sqs.enabled: ${AWS_SQS_ENABLED:false}` required in notification-service `application.yml` — prevents Spring Cloud AWS auto-config from connecting when SQS is off
+- DLQ ARN format for LocalStack: `arn:aws:sqs:ap-south-1:000000000000:loan-events-dlq`
+- Visibility timeout: 30s (SQS default) — redelivers up to `maxReceiveCount=3` times before routing to DLQ
+
+**Test coverage:** loan-service 8 tests (6 existing + 2 SQS-path); notification-service 25 tests (19 existing + 6 routing)
 
 **LocalStack CLI:**
 ```bash
+# Queues are auto-created by SqsConfig on startup; manual bootstrap if needed:
 awslocal sqs create-queue --queue-name loan-events-dlq --region ap-south-1
 awslocal sqs create-queue \
   --queue-name loan-events \
   --attributes '{"RedrivePolicy":"{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-1:000000000000:loan-events-dlq\",\"maxReceiveCount\":\"3\"}"}' \
   --region ap-south-1
+
+# Inspect DLQ after failures
+awslocal sqs receive-message \
+  --queue-url http://localhost:4566/000000000000/loan-events-dlq \
+  --region ap-south-1
 ```
 
-### AWS SES — Transactional Email (replace SendGrid)
+| File to read | When changing |
+|---|---|
+| `loan-service/config/SqsConfig.java` | SQS queue config or DLQ policy |
+| `loan-service/service/LoanService.java` → `publishEvent()` | Adding new event types to publish |
+| `notification-service/consumer/SqsConsumerService.java` | Adding new SQS event routes |
+
+---
+
+## LocalStack Feature Roadmap
+
+Features to add next (in suggested order):
+
+### Next up — AWS SES — Transactional Email (replace SendGrid)
 
 **Why:** SES costs $0.10/1000 emails vs SendGrid free tier limits. LocalStack emulates SES sending + can verify sandbox domains locally.
 
