@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "smartlend-api-collection",
     "name": "SmartLend API",
-    "description": "Complete API collection for SmartLend — AI-powered loan management platform.\n\nFlow:\n1. Register or Login → token auto-saved to {{token}}\n2. Apply for Loan → loanId auto-saved to {{loanId}}\n3. Login as Admin → approve/reject using {{loanId}}\n\nAll {{token}} headers are injected automatically via collection-level auth.",
+    "description": "Complete API collection for SmartLend — AI-powered loan management platform.\n\nFlow:\n1. Register or Login → token + userId auto-saved\n2. Apply for Loan → loanId auto-saved to {{loanId}}\n3. Upload KYC documents → documentId auto-saved to {{documentId}}\n4. Login as Admin → approve/reject using {{loanId}}\n5. View EMI Schedule, Audit Log\n\nAll {{token}} headers are injected automatically via collection-level auth.\nVariables: {{token}}, {{userId}}, {{loanId}}, {{documentId}}",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -16,9 +16,10 @@
     ]
   },
   "variable": [
-    { "key": "token",  "value": "", "type": "string" },
-    { "key": "userId", "value": "", "type": "string" },
-    { "key": "loanId", "value": "", "type": "string" }
+    { "key": "token",      "value": "", "type": "string" },
+    { "key": "userId",     "value": "", "type": "string" },
+    { "key": "loanId",     "value": "", "type": "string" },
+    { "key": "documentId", "value": "", "type": "string" }
   ],
   "item": [
     {
@@ -335,6 +336,97 @@
               "path": ["api", "loans", "admin", "summary"]
             },
             "description": "ADMIN only. Total loans, pending, active, disbursed amount, and outstanding balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents (loan-service :8082)",
+      "item": [
+        {
+          "name": "Upload Document",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('documentId', body.documentId);",
+                  "    pm.environment.set('documentId', body.documentId);",
+                  "    console.log('Document uploaded — ID:', body.documentId, '| Type:', body.docType);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User-Id", "value": "{{userId}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "", "description": "Select a PDF/JPEG/PNG file (max 10MB)" }
+              ]
+            },
+            "url": {
+              "raw": "{{loan_url}}/api/loans/{{loanId}}/documents?docType=INCOME_PROOF",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "{{loanId}}", "documents"],
+              "query": [{ "key": "docType", "value": "INCOME_PROOF", "description": "INCOME_PROOF | IDENTITY_PROOF | ADDRESS_PROOF | BANK_STATEMENT | EMPLOYMENT_LETTER | OTHER" }]
+            },
+            "description": "Upload a KYC document to S3. documentId is auto-saved to {{documentId}}. docType options: INCOME_PROOF, IDENTITY_PROOF, ADDRESS_PROOF, BANK_STATEMENT, EMPLOYMENT_LETTER, OTHER."
+          }
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{userId}}" }
+            ],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/{{loanId}}/documents",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "{{loanId}}", "documents"]
+            },
+            "description": "List all documents uploaded for {{loanId}}. Applicants see their own; admins see all."
+          }
+        },
+        {
+          "name": "Get Presigned Download URL",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{userId}}" }
+            ],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/{{loanId}}/documents/{{documentId}}/url",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "{{loanId}}", "documents", "{{documentId}}", "url"]
+            },
+            "description": "Get a 15-minute presigned S3 URL to download the document directly. The URL bypasses the service — client fetches from S3 directly."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Log (loan-service :8082)",
+      "item": [
+        {
+          "name": "Get Loan Audit History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{loan_url}}/api/loans/admin/{{loanId}}/audit",
+              "host": ["{{loan_url}}"],
+              "path": ["api", "loans", "admin", "{{loanId}}", "audit"]
+            },
+            "description": "ADMIN only. Returns DynamoDB audit trail for {{loanId}} in chronological order. Events: LOAN_APPLIED, LOAN_APPROVED, LOAN_REJECTED, DOCUMENT_UPLOADED."
           }
         }
       ]

@@ -1604,6 +1604,75 @@ is a low-risk bridge until the ecosystem catches up or CRA is replaced.
 
 ---
 
+---
+
+## AWS & LocalStack Integration
+
+SmartLend uses LocalStack (`http://localhost:4566`, region `ap-south-1`) to emulate four AWS services locally. All four follow the same config pattern: a `@Configuration` class reads `${aws.endpoint}`, `${aws.region}`, `${aws.access-key}`, `${aws.secret-key}` from `application.yml`. When `aws.endpoint` is blank, the SDK connects to real AWS — the same code works in both environments.
+
+### Feature 1 — S3: KYC Document Storage
+
+**Why S3, not the DB?** Binary files in PostgreSQL bloat the table, slow vacuuming, and complicate backups. S3 is designed for objects: unlimited size, per-object ACLs, lifecycle policies, and presigned URLs that let clients download directly without routing traffic through the service.
+
+**Presigned URL pattern:** The service generates a time-limited signed URL (15 min) and returns it to the client. The client downloads directly from S3. The service never proxies file bytes — this is the correct architecture for binary data at scale.
+
+**Critical gotcha — `forcePathStyle(true)`:** By default the AWS S3 SDK generates virtual-hosted URLs: `{bucket}.s3.amazonaws.com`. LocalStack can't handle these because it doesn't control DNS. `forcePathStyle(true)` makes the SDK generate path-style URLs instead: `localhost:4566/{bucket}/...`. This must be set on both `S3Client` AND `S3Presigner`.
+
+```java
+S3Client.builder().forcePathStyle(true).endpointOverride(URI.create(endpoint)).build();
+```
+
+**S3 key design:** `{loanId}/{docType}/{UUID}-{originalFilename}` — loanId prefix groups all documents for one loan; UUID prevents filename collisions; original filename preserved for UX.
+
+### Feature 2 — DynamoDB: Immutable Audit Log
+
+**Why DynamoDB for audit logs, not PostgreSQL?**
+- Audit tables grow forever. PostgreSQL needs VACUUM, reindexing, bloat management. DynamoDB scales writes without maintenance.
+- Append-only semantics map perfectly: `attribute_not_exists(sk)` condition makes every write idempotent. A retry writes the same SK and DynamoDB rejects it silently — no duplicates, no extra logic.
+- In production: DynamoDB Streams → Lambda → S3 → Athena = a regulatory compliance data lake with zero application changes.
+
+**Table design:** PK = `loanId` (all events for one loan in one partition = fast lookup). SK = `{ISO-8601-timestamp}#{UUID}` (ISO strings sort lexicographically = free chronological order with `ScanIndexForward=true`).
+
+**Why ISO-8601 in the SK?** Because DynamoDB has no `ORDER BY timestamp` query. The only ordering available is SK lexicographic order within a partition. ISO-8601 strings (`2026-07-11T18:26:45Z`) sort correctly: earlier timestamps sort before later ones as plain strings.
+
+**Audit failures never propagate:** The catch block logs the error and returns — it never rethrows. A DynamoDB outage cannot roll back a loan approval. Correctness of the business operation takes precedence over audit completeness. (If audit completeness is required by regulation, use DynamoDB Streams as a CDC feed instead of synchronous writes.)
+
+**Bug fixed during testing:** DynamoDB rejects `AttributeValue` with an empty or null string. Fields like `fromStatus` and `toStatus` are null for `DOCUMENT_UPLOADED` events (no status transition). Fix: only `item.put(key, s(value))` when `value != null`.
+
+### Feature 3 — SQS + Dead Letter Queue: Reliable Loan Events
+
+**Why SQS over RabbitMQ?** RabbitMQ requires a running broker you manage. SQS is serverless: AWS manages availability, scaling, and durability. The DLQ pattern gives you a built-in "parking lot" for failed messages without extra infrastructure.
+
+**DLQ pattern:** `loan-events` queue has a redrive policy: after `maxReceiveCount=3` failed deliveries (visibility timeout expires without deletion), SQS automatically moves the message to `loan-events-dlq`. The DLQ holds the message indefinitely for inspection and replay. Zero application code needed to implement this.
+
+**Toggle design — `@ConditionalOnProperty`:** The `SqsClient` bean only exists when `aws.sqs.enabled=true`. `LoanService` injects it as `@Autowired(required=false)` — the field is null when SQS is off, and `publishEvent()` falls back to RabbitMQ. This lets both brokers coexist for demo purposes.
+
+```java
+private void publishEvent(String routingKey, Map<String, Object> payload) {
+    if (sqsClient != null) {
+        // SQS path
+    } else {
+        rabbitTemplate.convertAndSend(exchange, routingKey, payload); // RabbitMQ fallback
+    }
+}
+```
+
+**Critical: catch `SdkException`, not just `JsonProcessingException`:** SQS network failures throw `SdkException` (a `RuntimeException`). If uncaught inside a `@Transactional` method, Spring rolls back the loan operation. Publishing is fire-and-forget — always catch `SdkException` and log, never rethrow.
+
+**Spring Cloud AWS BOM gotcha:** The artifact ID is `spring-cloud-aws-dependencies` — NOT `spring-cloud-aws-bom` (which doesn't exist on Maven Central). Using the wrong ID silently falls back to `dependencyManagement` defaults and pulls wrong versions.
+
+**DLQ ARN on real AWS:** LocalStack uses account ID `000000000000`. On real AWS the account ID is a 12-digit number. Make it configurable: `${AWS_ACCOUNT_ID:000000000000}` so the ARN in the redrive policy is correct on both.
+
+### Feature 4 — SES: Transactional Email (in progress)
+
+**Why SES over SendGrid?** SES costs $0.10/1000 emails (effectively free at SmartLend's scale). SendGrid free tier is 100/day. More importantly, SES is an AWS service — it stays within the AWS ecosystem and can be rotated via Secrets Manager, monitored via CloudWatch, and used with SES suppression lists out of the box.
+
+**Extensible channel pattern:** `SesEmailChannel` implements `NotificationChannel` and is annotated `@Component`. The `NotificationDispatcher` injects `List<NotificationChannel>` and calls `isEnabled()` on each. Adding a new email provider requires zero changes to the dispatcher — just a new `@Component` implementation.
+
+**Mutual exclusivity via env vars:** Set `NOTIFICATION_SES_ENABLED=true` and `NOTIFICATION_EMAIL_ENABLED=false` to switch from SendGrid to SES. The dispatcher skips disabled channels — no conditional logic in business code.
+
+---
+
 ## Quick Reference: File to Read First by Topic
 
 | What you want to understand | Start here |
@@ -1621,6 +1690,10 @@ is a low-risk bridge until the ecosystem catches up or CRA is replaced.
 | How errors are standardized | `GlobalExceptionHandler.java` + `SecurityConfig.java` (writeError) |
 | How distributed tracing works | `RequestLoggingFilter.java` |
 | How circuit breaker protects loan-service | `AiScoringClient.java` + `UserServiceClient.java` + `application.yml` (resilience4j section) |
+| How S3 document upload works | `DocumentStorageService.java` + `S3Config.java` (`forcePathStyle`) |
+| How DynamoDB audit log is designed | `LoanAuditService.java` + `DynamoDbConfig.java` (SK pattern, null guard) |
+| How SQS + DLQ is toggled | `LoanService.java` → `publishEvent()` + `SqsConfig.java` (redrive policy) |
+| How email channels are swapped | `SesEmailChannel.java` + `SendGridEmailChannel.java` (`isEnabled()` toggle) |
 
 ---
 

@@ -455,6 +455,8 @@ railway logs --service ai-scoring-smartlend
 | Adding a new event | 1. Publish from service with `type` field  2. Add binding in `notification-service/config/RabbitMQConfig.java`  3. Add handler method in `LoanNotificationHandler`  4. Add case in `LoanEventConsumer` |
 | S3 document upload | `config/S3Config.java`, `service/DocumentStorageService.java`, `controller/LoanDocumentController.java` |
 | DynamoDB audit log | `config/DynamoDbConfig.java`, `audit/LoanAuditService.java`, `audit/LoanAuditEvent.java`, `controller/LoanAuditController.java` |
+| SQS publish/consume | `loan-service/config/SqsConfig.java`, `LoanService.java` → `publishEvent()`, `notification-service/consumer/SqsConsumerService.java` |
+| SES email channel | `notification-service/config/SesConfig.java`, `channel/email/SesEmailChannel.java` |
 
 ---
 
@@ -632,17 +634,47 @@ awslocal sqs receive-message \
 
 ## LocalStack Feature Roadmap
 
-Features to add next (in suggested order):
+### Feature 4 — AWS SES Transactional Email (design complete 2026-07-12 — implementation in progress)
 
-### Next up — AWS SES — Transactional Email (replace SendGrid)
+**Purpose:** Replace SendGrid with AWS SES for transactional email. SES costs $0.10/1000 emails vs SendGrid free-tier limits. LocalStack emulates SES locally.
 
-**Why:** SES costs $0.10/1000 emails vs SendGrid free tier limits. LocalStack emulates SES sending + can verify sandbox domains locally.
+**New files in `notification-service/`:**
 
-**Plan:**
-1. Add `ses` to pom.xml
-2. Create `SesEmailChannel.java` implementing `NotificationChannel` — replaces `SendGridEmailChannel`
-3. HTML templates are already in `LoanNotificationHandler.java` — reuse them
-4. Toggle: `NOTIFICATION_SES_ENABLED=true` → SES active; `NOTIFICATION_EMAIL_ENABLED=true` → SendGrid
+| File | Role |
+|------|------|
+| `config/SesConfig.java` | `SesClient` bean (`@ConditionalOnProperty(aws.ses.enabled)`); `verifyFromAddress()` on startup |
+| `channel/email/SesEmailChannel.java` | `NotificationChannel` impl; `channelName()="EMAIL_SES"`; `@Autowired(required=false) SesClient`; reads `htmlBody` from `NotificationPayload` |
+
+**Toggle (mutually exclusive with SendGrid):**
+```
+AWS_SES_ENABLED=true
+NOTIFICATION_SES_ENABLED=true
+NOTIFICATION_EMAIL_ENABLED=false   # disables SendGrid
+```
+
+**Key gotchas:**
+- `software.amazon.awssdk:ses:2.25.16` — pin version explicitly (no BOM in notification-service)
+- `@Autowired(required=false)` for `SesClient` — `isEnabled()` returns false when bean absent
+- `verifyFromAddress()` catches all exceptions and logs WARN — never blocks startup
+- Flat AWS namespace: `${aws.endpoint}`, `${aws.region}`, `${aws.access-key}`, `${aws.secret-key}` (same as SqsConfig)
+
+**LocalStack setup:**
+```bash
+awslocal ses verify-email-identity --email-address noreply@smartlend.com --region ap-south-1
+awslocal ses list-verified-email-addresses --region ap-south-1
+```
+
+**Test coverage:** 28 tests (25 existing + 3 `SesEmailChannelTest`)
+
+**Spec:** `docs/superpowers/specs/2026-07-12-ses-email-design.md`
+**Plan:** `docs/superpowers/plans/2026-07-12-ses-email.md`
+
+| File to read | When changing |
+|---|---|
+| `notification-service/config/SesConfig.java` | SES client config or startup verification |
+| `notification-service/channel/email/SesEmailChannel.java` | Email send logic or toggle behaviour |
+
+---
 
 ### Secrets Manager — Secure Credential Rotation
 
