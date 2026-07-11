@@ -42,13 +42,13 @@ public class LoanAuditService {
             item.put("sk",        s(event.getSk()));
             item.put("eventId",   s(event.getEventId()));
             item.put("eventType", s(event.getEventType()));
-            item.put("toStatus",  s(event.getToStatus()));
             item.put("actorId",   s(event.getActorId()));
             item.put("actorRole", s(event.getActorRole()));
             item.put("timestamp", s(event.getTimestamp()));
 
-            // Nullable fields — DynamoDB has no NULL type in queries; omit the attribute instead
+            // Nullable fields — DynamoDB rejects empty string AttributeValues; omit entirely
             if (event.getFromStatus() != null) item.put("fromStatus", s(event.getFromStatus()));
+            if (event.getToStatus()   != null) item.put("toStatus",   s(event.getToStatus()));
             if (event.getMetadata()   != null) item.put("metadata",   s(event.getMetadata()));
 
             dynamoDbClient.putItem(PutItemRequest.builder()

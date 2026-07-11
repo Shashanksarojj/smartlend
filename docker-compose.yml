@@ -1,20 +1,28 @@
 services:
 
   # ─── Microservices ───────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: smartlend-redis
+    ports:
+      - "6379:6379"
+
   user-service:
     build: ./user-service
     container_name: smartlend-user-service
     ports:
       - "8081:8081"
+    depends_on:
+      - redis
     environment:
       USER_DB_URL: ${USER_DB_URL}
       USER_DB_USERNAME: ${USER_DB_USERNAME}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_USERNAME: ${REDIS_USERNAME:-default}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      REDIS_SSL: ${REDIS_SSL:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ""
+      REDIS_SSL: "false"
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5671}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
@@ -41,8 +49,8 @@ services:
       AI_SCORING_URL: http://ai-scoring:8000
       USER_SERVICE_URL: http://user-service:8081
       JWT_SECRET: ${JWT_SECRET:-smartlend-super-secret-jwt-key-change-in-prod}
-      # S3 / LocalStack — override AWS_S3_ENDPOINT="" in production to hit real AWS
-      AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-http://localhost:4566}
+      # LocalStack — host.docker.internal so containers can reach LocalStack on the host
+      AWS_ENDPOINT: http://host.docker.internal:4566
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-smartlend-documents}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
