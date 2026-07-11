@@ -14,10 +14,32 @@ spring:
     ssl:
       enabled: ${RABBITMQ_SSL:false}
 
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:ap-south-1}
+      credentials:
+        access-key: ${AWS_ACCESS_KEY_ID:test}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+      sqs:
+        endpoint: ${AWS_ENDPOINT:http://localhost:4566}
+        enabled: ${AWS_SQS_ENABLED:false}
+
 rabbitmq:
   exchange: smartlend.exchange
   queue:
     loan-events: loan.events.queue
+
+# ── AWS / LocalStack SQS ───────────────────────────────────────
+aws:
+  region: ${AWS_REGION:ap-south-1}
+  endpoint: ${AWS_ENDPOINT:http://localhost:4566}
+  access-key: ${AWS_ACCESS_KEY_ID:test}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+  sqs:
+    enabled: ${AWS_SQS_ENABLED:false}
+    queue-name: ${AWS_SQS_QUEUE:loan-events}
+    queue-url: ${AWS_SQS_QUEUE_URL:http://localhost:4566/000000000000/loan-events}
 
 # ── Notification channels ──────────────────────────────────────
 notification:
