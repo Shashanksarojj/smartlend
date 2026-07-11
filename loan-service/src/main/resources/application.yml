@@ -87,6 +87,10 @@ aws:
     presigned-url-expiry-minutes: ${AWS_S3_PRESIGNED_EXPIRY:15}
   dynamodb:
     table-name: ${AWS_DYNAMODB_AUDIT_TABLE:loan-audit-log}
+  sqs:
+    enabled: ${AWS_SQS_ENABLED:false}
+    queue-name: ${AWS_SQS_QUEUE:loan-events}
+    queue-url: ${AWS_SQS_QUEUE_URL:http://localhost:4566/000000000000/loan-events}
 
 management:
   endpoints:

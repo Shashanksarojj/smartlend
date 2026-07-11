@@ -61,6 +61,10 @@
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>dynamodb</artifactId>
     </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sqs</artifactId>
+    </dependency>
 
     <!-- Resilience4j circuit breaker -->
     <dependency>
