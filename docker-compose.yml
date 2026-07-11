@@ -86,6 +86,15 @@ services:
       WHATSAPP_TEMPLATE_LOAN_APPROVED: ${WHATSAPP_TEMPLATE_LOAN_APPROVED:-loan_approved}
       WHATSAPP_TEMPLATE_LOAN_REJECTED: ${WHATSAPP_TEMPLATE_LOAN_REJECTED:-loan_rejected}
       WHATSAPP_TEMPLATE_EMI_DUE: ${WHATSAPP_TEMPLATE_EMI_DUE:-emi_due}
+      # AWS / LocalStack — SES email channel
+      AWS_ENDPOINT: http://host.docker.internal:4566
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      AWS_SES_ENABLED: ${AWS_SES_ENABLED:-false}
+      NOTIFICATION_SES_ENABLED: ${NOTIFICATION_SES_ENABLED:-false}
+      AWS_SES_FROM_EMAIL: ${AWS_SES_FROM_EMAIL:-noreply@smartlend.com}
+      AWS_SES_FROM_NAME: ${AWS_SES_FROM_NAME:-SmartLend}
 
   ai-scoring:
     build: ./ai-scoring

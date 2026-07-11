@@ -634,7 +634,7 @@ awslocal sqs receive-message \
 
 ## LocalStack Feature Roadmap
 
-### Feature 4 — AWS SES Transactional Email (design complete 2026-07-12 — implementation in progress)
+### Feature 4 — AWS SES Transactional Email (added 2026-07-12)
 
 **Purpose:** Replace SendGrid with AWS SES for transactional email. SES costs $0.10/1000 emails vs SendGrid free-tier limits. LocalStack emulates SES locally.
 
@@ -643,7 +643,7 @@ awslocal sqs receive-message \
 | File | Role |
 |------|------|
 | `config/SesConfig.java` | `SesClient` bean (`@ConditionalOnProperty(aws.ses.enabled)`); `verifyFromAddress()` on startup |
-| `channel/email/SesEmailChannel.java` | `NotificationChannel` impl; `channelName()="EMAIL_SES"`; `@Autowired(required=false) SesClient`; reads `htmlBody` from `NotificationPayload` |
+| `channel/email/SesEmailChannel.java` | `NotificationChannel` impl; `channelName()="EMAIL_SES"`; `@Autowired(required=false)` for SesClient; `isEnabled()` returns false when bean absent |
 
 **Toggle (mutually exclusive with SendGrid):**
 ```
@@ -654,7 +654,7 @@ NOTIFICATION_EMAIL_ENABLED=false   # disables SendGrid
 
 **Key gotchas:**
 - `software.amazon.awssdk:ses:2.25.16` — pin version explicitly (no BOM in notification-service)
-- `@Autowired(required=false)` for `SesClient` — `isEnabled()` returns false when bean absent
+- `@Autowired(required=false)` for SesClient — `isEnabled()` returns false when bean absent
 - `verifyFromAddress()` catches all exceptions and logs WARN — never blocks startup
 - Flat AWS namespace: `${aws.endpoint}`, `${aws.region}`, `${aws.access-key}`, `${aws.secret-key}` (same as SqsConfig)
 

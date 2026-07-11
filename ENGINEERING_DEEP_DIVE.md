@@ -1663,13 +1663,39 @@ private void publishEvent(String routingKey, Map<String, Object> payload) {
 
 **DLQ ARN on real AWS:** LocalStack uses account ID `000000000000`. On real AWS the account ID is a 12-digit number. Make it configurable: `${AWS_ACCOUNT_ID:000000000000}` so the ARN in the redrive policy is correct on both.
 
-### Feature 4 — SES: Transactional Email (in progress)
+### Feature 4 — SES: Transactional Email (added 2026-07-12)
 
 **Why SES over SendGrid?** SES costs $0.10/1000 emails (effectively free at SmartLend's scale). SendGrid free tier is 100/day. More importantly, SES is an AWS service — it stays within the AWS ecosystem and can be rotated via Secrets Manager, monitored via CloudWatch, and used with SES suppression lists out of the box.
 
-**Extensible channel pattern:** `SesEmailChannel` implements `NotificationChannel` and is annotated `@Component`. The `NotificationDispatcher` injects `List<NotificationChannel>` and calls `isEnabled()` on each. Adding a new email provider requires zero changes to the dispatcher — just a new `@Component` implementation.
+**`SesConfig` — conditional bean pattern:**
+```java
+@Bean
+@ConditionalOnProperty(name = "aws.ses.enabled", havingValue = "true")
+public SesClient sesClient() { ... }
+```
+When `aws.ses.enabled=false` (the default), Spring never creates the bean. `SesEmailChannel` injects it with `@Autowired(required=false)` — the field is null, and `isEnabled()` returns false immediately. No connection is attempted unless the feature is explicitly enabled.
+
+**`verifyFromAddress()` — startup verification that never blocks:**
+Called inside `sesClient()` before returning the bean. Sends `VerifyEmailIdentityRequest` to SES (LocalStack or real AWS). If it throws anything — network error, SDK error, sandbox restriction — it logs WARN and returns normally. A monitoring failure cannot prevent the application from starting.
+
+**`SesEmailChannel.send()` — SDK v2 builder chain:**
+```java
+sesClient.sendEmail(r -> r
+    .destination(d -> d.toAddresses(payload.recipientEmail()))
+    .message(m -> m
+        .subject(c -> c.data(payload.subject()))
+        .body(b -> b
+            .html(c -> c.data(htmlBody))
+            .text(c -> c.data(payload.body()))))
+    .source(fromEmail));
+```
+The lambda-builder style is idiomatic AWS SDK v2. `htmlBody` prefers `payload.htmlBody()` with a fallback to `payload.body()` when null/blank. The plain-text `.text()` part always uses `payload.body()` — email clients that cannot render HTML fall back to it automatically.
+
+**Extensible channel pattern:** `SesEmailChannel` implements `NotificationChannel` and is annotated `@Component`. The `NotificationDispatcher` injects `List<NotificationChannel>` and calls `isEnabled()` on each — adding a new email provider requires zero changes to the dispatcher. This is the Open/Closed Principle in practice.
 
 **Mutual exclusivity via env vars:** Set `NOTIFICATION_SES_ENABLED=true` and `NOTIFICATION_EMAIL_ENABLED=false` to switch from SendGrid to SES. The dispatcher skips disabled channels — no conditional logic in business code.
+
+**Testing `@Value` fields without Spring context:** `SesEmailChannel` uses field injection (`@Value`, `@Autowired`). Tests use `ReflectionTestUtils.setField(channel, "sesClient", mockClient)` to inject values without starting a Spring context — fast unit tests with no application context overhead.
 
 ---
 
