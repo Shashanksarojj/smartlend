@@ -41,12 +41,18 @@ aws:
     enabled: ${AWS_SQS_ENABLED:false}
     queue-name: ${AWS_SQS_QUEUE:loan-events}
     queue-url: ${AWS_SQS_QUEUE_URL:http://localhost:4566/000000000000/loan-events}
+  ses:
+    enabled: ${AWS_SES_ENABLED:false}
+    from-email: ${AWS_SES_FROM_EMAIL:noreply@smartlend.com}
+    from-name: ${AWS_SES_FROM_NAME:SmartLend}
 
 # ── Notification channels ──────────────────────────────────────
 notification:
   channels:
     email:
       enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
+    ses:
+      enabled: ${NOTIFICATION_SES_ENABLED:false}
     sms:
       enabled: ${NOTIFICATION_SMS_ENABLED:false}
     push:

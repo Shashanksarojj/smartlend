@@ -40,6 +40,13 @@
       <artifactId>sqs</artifactId>
       <version>2.25.16</version>
     </dependency>
+
+    <!-- AWS SDK v2 SES module (for SesClient in SesConfig) -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>ses</artifactId>
+      <version>2.25.16</version>
+    </dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
     <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
 
