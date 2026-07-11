@@ -57,7 +57,7 @@ public class SesEmailChannel implements NotificationChannel {
                         .body(b -> b
                                 .html(c -> c.data(htmlBody))
                                 .text(c -> c.data(payload.body()))))
-                .source(fromEmail));
+                .source(fromName + " <" + fromEmail + ">"));
 
         log.info("SES email sent — to={} subject={}", payload.recipientEmail(), payload.subject());
     }

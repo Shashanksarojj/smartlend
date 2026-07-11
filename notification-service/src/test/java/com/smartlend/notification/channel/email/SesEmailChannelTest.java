@@ -52,9 +52,12 @@ class SesEmailChannelTest {
     void isEnabled_false_channelDisabled() {
         ReflectionTestUtils.setField(channel, "enabled", false);
         assertThat(channel.isEnabled()).isFalse();
-        channel.send(payload()); // should be no-op when disabled check is callers's job
-        // dispatcher skips send() when isEnabled()==false; here we verify isEnabled returns false
         assertThat(channel.channelName()).isEqualTo("EMAIL_SES");
+        // The dispatcher calls isEnabled() and skips send() when false.
+        // Verify the null-path: set sesClient=null so send() hits the null guard and never reaches SES.
+        ReflectionTestUtils.setField(channel, "sesClient", null);
+        channel.send(payload());
+        verifyNoInteractions(sesClient);
     }
 
     @Test
