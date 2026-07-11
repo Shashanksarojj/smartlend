@@ -1,5 +1,6 @@
 package com.smartlend.loan.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlend.loan.audit.LoanAuditService;
 import com.smartlend.loan.client.AiScoringClient;
 import com.smartlend.loan.client.UserServiceClient;
@@ -17,6 +18,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -36,6 +39,8 @@ class LoanServiceTest {
     @Mock private UserServiceClient userServiceClient;
     @Mock private RabbitTemplate rabbitTemplate;
     @Mock private LoanAuditService auditService;
+    @Mock private SqsClient sqsClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks private LoanService loanService;
 
@@ -45,6 +50,9 @@ class LoanServiceTest {
         ReflectionTestUtils.setField(loanService, "approvedKey", "loan.approved");
         ReflectionTestUtils.setField(loanService, "rejectedKey", "loan.rejected");
         ReflectionTestUtils.setField(loanService, "appliedKey", "loan.applied");
+        ReflectionTestUtils.setField(loanService, "sqsQueueUrl", "http://localhost:4566/000000000000/loan-events");
+        ReflectionTestUtils.setField(loanService, "objectMapper", objectMapper);
+        // sqsClient is NOT injected by default — tests run the RabbitMQ path unless explicitly set
     }
 
     // ── applyForLoan ───────────────────────────────────────────
@@ -75,6 +83,36 @@ class LoanServiceTest {
         assertThat(res.getRiskLabel()).isEqualTo("MEDIUM");
         assertThat(res.getStatus()).isEqualTo(Loan.LoanStatus.PENDING);
         verify(rabbitTemplate).convertAndSend(eq("smartlend.exchange"), eq("loan.applied"), anyMap());
+    }
+
+    @Test
+    void applyForLoan_sqsEnabled_sendsToSqsNotRabbit() {
+        ReflectionTestUtils.setField(loanService, "sqsClient", sqsClient);
+
+        LoanDto.ApplyRequest req = new LoanDto.ApplyRequest();
+        req.setPrincipalAmount(new BigDecimal("200000"));
+        req.setTenureMonths(24);
+        req.setPurpose("Home renovation");
+
+        ScoringDto.ScoringResponse score = new ScoringDto.ScoringResponse();
+        score.setCreditScore(700);
+        score.setRiskLabel("MEDIUM");
+        score.setRecommendation("APPROVE");
+
+        when(aiScoringClient.getScore(any())).thenReturn(score);
+        when(userServiceClient.getProfile("user-1")).thenReturn(mockProfile());
+
+        Loan saved = loanWithId("loan-1", "user-1", new BigDecimal("200000"), 24);
+        saved.setCreditScore(700);
+        saved.setRiskLabel("MEDIUM");
+        when(loanRepository.save(any(Loan.class))).thenReturn(saved);
+
+        loanService.applyForLoan("user-1", req, 60000.0, "SALARIED");
+
+        verify(sqsClient).sendMessage(any(SendMessageRequest.class));
+        verifyNoInteractions(rabbitTemplate);
+
+        ReflectionTestUtils.setField(loanService, "sqsClient", null); // reset for other tests
     }
 
     // ── processAdminDecision — APPROVED ────────────────────────
@@ -126,6 +164,33 @@ class LoanServiceTest {
         // EMI = 120000 * 0.01 * (1.01)^12 / ((1.01)^12 - 1) ≈ 10661.85
         assertThat(res.getEmiAmount().doubleValue()).isCloseTo(10661.85, within(1.0));
         assertThat(res.getTotalPayable().doubleValue()).isCloseTo(10661.85 * 12, within(5.0));
+    }
+
+    @Test
+    void processAdminDecision_sqsEnabled_approved_sendsToSqsNotRabbit() {
+        ReflectionTestUtils.setField(loanService, "sqsClient", sqsClient);
+
+        Loan loan = loanWithId("loan-1", "user-1", new BigDecimal("300000"), 24);
+        loan.setStatus(Loan.LoanStatus.PENDING);
+
+        when(loanRepository.findById("loan-1")).thenReturn(Optional.of(loan));
+        when(userServiceClient.getProfile("user-1")).thenReturn(mockProfile());
+        when(loanRepository.save(any(Loan.class))).thenAnswer(i -> i.getArgument(0));
+        when(emiPaymentRepository.saveAll(any())).thenReturn(List.of());
+
+        LoanDto.AdminDecisionRequest decision = new LoanDto.AdminDecisionRequest();
+        decision.setDecision(Loan.LoanStatus.APPROVED);
+        decision.setAdminNote("Approved");
+        decision.setInterestRate(12.0);
+
+        loanService.processAdminDecision("loan-1", decision);
+
+        ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
+        verify(sqsClient).sendMessage(captor.capture());
+        assertThat(captor.getValue().messageBody()).contains("\"type\":\"APPROVED\"");
+        verifyNoInteractions(rabbitTemplate);
+
+        ReflectionTestUtils.setField(loanService, "sqsClient", null);
     }
 
     // ── processAdminDecision — REJECTED ───────────────────────
