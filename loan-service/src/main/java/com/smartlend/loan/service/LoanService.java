@@ -11,6 +11,7 @@ import com.smartlend.loan.repository.EmiPaymentRepository;
 import com.smartlend.loan.repository.LoanRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.core.exception.SdkException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -261,6 +262,8 @@ public class LoanService {
                         .build());
             } catch (JsonProcessingException e) {
                 log.error("Failed to serialise SQS event payload: {}", e.getMessage());
+            } catch (SdkException e) {
+                log.error("SQS sendMessage failed — event dropped, loan operation continues: {}", e.getMessage());
             }
         } else {
             rabbitTemplate.convertAndSend(exchange, routingKey, payload);

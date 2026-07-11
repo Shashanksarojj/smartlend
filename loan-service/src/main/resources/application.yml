@@ -82,6 +82,7 @@ aws:
   endpoint: ${AWS_ENDPOINT:http://localhost:4566}   # shared LocalStack override; blank in production
   access-key: ${AWS_ACCESS_KEY_ID:test}
   secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+  account-id: ${AWS_ACCOUNT_ID:000000000000}   # real 12-digit account ID on AWS; LocalStack default is 000000000000
   s3:
     bucket-name: ${AWS_S3_BUCKET:smartlend-documents}
     presigned-url-expiry-minutes: ${AWS_S3_PRESIGNED_EXPIRY:15}

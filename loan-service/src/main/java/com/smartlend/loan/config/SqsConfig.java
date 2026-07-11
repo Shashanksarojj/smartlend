@@ -36,6 +36,9 @@ public class SqsConfig {
     @Value("${aws.sqs.queue-name:loan-events}")
     private String queueName;
 
+    @Value("${aws.account-id:000000000000}")
+    private String accountId;
+
     @Bean
     @ConditionalOnProperty(name = "aws.sqs.enabled", havingValue = "true")
     public SqsClient sqsClient() {
@@ -61,8 +64,9 @@ public class SqsConfig {
             String dlqName = queueName + "-dlq";
             createQueueIfAbsent(client, dlqName, Map.of());
 
-            // LocalStack ARN format: arn:aws:sqs:{region}:000000000000:{queue-name}
-            String dlqArn = "arn:aws:sqs:" + region + ":000000000000:" + dlqName;
+            // ARN format: arn:aws:sqs:{region}:{accountId}:{queue-name}
+            // accountId defaults to "000000000000" for LocalStack; set AWS_ACCOUNT_ID on real AWS
+            String dlqArn = "arn:aws:sqs:" + region + ":" + accountId + ":" + dlqName;
             String redrivePolicy = "{\"maxReceiveCount\":\"3\",\"deadLetterTargetArn\":\"" + dlqArn + "\"}";
             createQueueIfAbsent(client, queueName,
                     Map.of(QueueAttributeName.REDRIVE_POLICY, redrivePolicy));
